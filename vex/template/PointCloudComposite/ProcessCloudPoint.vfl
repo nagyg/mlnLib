@@ -1,0 +1,21 @@
+
+// cvex init
+#include "PointCloudContext_begin.h" 
+
+// your code to init stuff
+#include "oneCloudPoint_begin.h"
+
+// open point cloud, do iterations on points
+#include "PointCloudContext_pcopen.h"
+
+// your code for each pciterate cycle
+#include "oneCloudPoint_each.h"
+
+// close point cloud
+#include "PointCloudContext_pcclose.h"
+
+// your code to finalize work
+#include "oneCloudPoint_end.h"
+
+// end function
+#include "PointCloudContext_end.h"

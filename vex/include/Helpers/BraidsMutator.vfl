@@ -1,0 +1,357 @@
+#include "Helpers/mathHelper.h"
+#include "Helpers/pointAttribHelper.h"
+#include "Helpers/primAttribHelper.h"
+#include "Helpers/arrayAttribHelper.h"
+
+#define QS_FOUND 1
+#define QS_NOT_FOUND 0
+#define QS_DONE 2
+
+struct BraidMutator {
+
+// statik
+int Verbose =0;
+int SpineGeoId =1;
+
+// params
+int MaxPossiblePoints, StartPointId, FailLimit, MaxBraids, StartSegments, EndSegments, ApplyTwice, RemoveCorner, Limited;
+float SearchRadius, InitialSeed;
+
+// accumulation
+string BraidInstances[] = {};
+int Attempts, FailCount, AllSegment, SuccessCount;
+
+// once set
+vector StartPointPos, StartOffset, EndOffset;
+
+// braid build runtime
+int CurrentPointId; // the root of the whole thing
+int CurrentSegment; // 0..N per braid
+int LastPrimId; // last braid polyline
+int BraidPointIds[] = {}; 
+int BraidChoices[] = {}; // 0/1 
+vector BraidPositions[] = {};
+
+// collect helpers
+int NearPointIds[] = {};
+vector NearPointPositions[] = {};
+
+// init read only stuff - params
+void Init(int startPointId, nofPoints, failLimit, maxBraids; float searchRadius, seed; vector startOffset, endOffset; int startSegments, endSegments ) {
+    StartPointId = startPointId;
+    MaxPossiblePoints = nofPoints;
+    SearchRadius = searchRadius;
+    InitialSeed = seed;
+    FailLimit = failLimit;
+    MaxBraids = maxBraids;
+    StartOffset = startOffset;
+    EndOffset = endOffset;
+    StartSegments = startSegments;
+    EndSegments = endSegments;
+}
+
+// pre every collect
+void ResetCollect() {
+    resize(NearPointIds,0);
+    resize(NearPointPositions,0);
+}
+
+void PrepareBraid() {
+
+    if (StartOffset != {0,0,0}) {
+        vector pp = StartPointPos + (StartSegments * StartOffset);
+        for(int i =0; i < StartSegments; i++) {
+            // the artificial one - offsetted
+            push(BraidPointIds, StartPointId);
+            push(BraidPositions, pp);
+            pp -= StartOffset;
+        }
+    }
+
+    // the real start pos
+    push(BraidPointIds, StartPointId);
+    push(BraidPositions, StartPointPos);
+
+}
+
+void FinalizeBraid() {
+
+    if (EndOffset == {0,0,0}) return;
+
+    vector lastPos = BraidPositions[len(BraidPositions)-1];
+    int lastId = BraidPointIds[len(BraidPointIds)-1];
+
+    for(int i =0; i < EndSegments; i++) {
+        lastPos += EndOffset;
+        push(BraidPointIds, lastId);
+        push(BraidPositions, lastPos );
+    }
+
+
+}
+
+
+// pre every braid
+void ResetBraid() {
+
+    // init collect per braid
+    CurrentSegment = 0;
+    LastPrimId = 0;
+    resize(BraidPointIds,0);
+    resize(BraidChoices,0);
+    resize(BraidPositions,0);
+
+    CurrentPointId = StartPointId;
+    this->PrepareBraid();
+}
+
+
+
+
+
+float GetCurrentSeed() {
+    return InitialSeed + ((CurrentPointId + StartPointId  + FailCount)* 0.0013337 * Attempts * CurrentSegment +(AllSegment * 0.1791));
+}
+ 
+
+void Dump() {
+    int nofN =len( NearPointIds );
+    int nofBc = len( BraidChoices );
+    printf("sP:%d nearPts:%d currP:%d cSeg:%d bc:%d\n", StartPointId, nofN, CurrentPointId, CurrentSegment, nofBc );
+    for(int i=0; i < nofN; i++) {
+        printf("%d ", NearPointIds[i]);
+    }
+    printf("\n bc: ");
+    for(int i=0; i < nofBc; i++) {
+        printf("%d ", BraidChoices[i]);
+    }
+    printf("\n");
+}
+
+
+
+/*
+Collects data into NearPointIds, NearPointPositions arrays - they are the possible points to select from
+  QS_DONE - last spine reached - OK
+  QS_FOUND - 1...MaxPossPts amount of points were found - OK
+  QS_NOT_FOUND - no adequate point was found - ERROR
+*/
+int CollectNearSpinePoints() {
+
+    
+    int oSid,oPtnum;
+    vector oP;
+
+    int queryPoints = npoints(SpineGeoId) + 1;
+    vector queryCenter = point(SpineGeoId,"P",CurrentPointId);
+    int sid = point(SpineGeoId, "sid",CurrentPointId);
+    int targetSid = sid + 1;
+
+    // is last spine reached?
+    int isLast = point(SpineGeoId,"slast", CurrentPointId);
+    if (isLast) return QS_DONE;
+
+    int count=0;
+    int handle = pcopen(SpineGeoId,"P",queryCenter, SearchRadius, queryPoints);
+    while (pciterate(handle))
+    {  
+        pcimport(handle, "point.number", oPtnum);
+        if (SpineGeoId == 0 && oPtnum == CurrentPointId) continue;
+
+        pcimport(handle, "P", oP);
+        pcimport(handle, "sid", oSid);
+        if (oSid != targetSid) continue;
+        
+        push(NearPointIds, oPtnum);
+        push(NearPointPositions, oP);
+
+        if (++count >= MaxPossiblePoints) break;
+    }
+    pcclose(handle);
+
+    if (count == 0) return QS_NOT_FOUND;
+    return QS_FOUND;
+    
+}
+
+/*
+Selects one point randomly from the possible spine points collected 
+*/
+int SelectNextPoint( int resultChoiceIndex ){
+
+    resultChoiceIndex = -1; // init
+    
+     // collect near points
+    this->ResetCollect();
+    int res = this->CollectNearSpinePoints();
+    if (res == QS_DONE || res == QS_NOT_FOUND) return res; // end of process
+
+    int nofNear = len(NearPointIds);
+    if (nofNear == 0) return QS_NOT_FOUND;
+    if (nofNear == 1) {
+        resultChoiceIndex = 0; // single point case
+        return QS_FOUND;
+    }
+
+    // select randomly from the near points
+    int inclusiveUpper = nofNear -1;
+    resultChoiceIndex =  RndIntInclusive( inclusiveUpper, this->GetCurrentSeed()); 
+    return QS_FOUND;
+}
+
+
+
+void DrawBraidSimple() {
+    int oId;
+    vector curPos;
+    int nofBp = len(BraidPositions);
+    LastPrimId = addprim(geoself(), "polyline");
+    for(int i=0; i < nofBp; i++) {
+        curPos = BraidPositions[i];
+        // do single point
+        oId = addpoint(geoself(), curPos);
+        Spa("entryp",oId, StartPointId);
+        addvertex(geoself(), LastPrimId, oId);
+    }
+    SetAndCreatePrimAttribute("entrypointid", LastPrimId, StartPointId);
+}
+
+string GenerateSignature(){
+    int choiceId;
+    string braidSign = sprintf("%02x:", StartPointId);
+    string ci = ".";
+    for(int i=0; i < len(BraidChoices); i++) {
+
+        choiceId = BraidChoices[i];
+        braidSign = sprintf("%s%d_", braidSign, choiceId );
+
+        // ez akkor jatszott amikor fixen 2 kozul valaszthatott, most lehet tobb is.
+        /*
+        if (choiceId == 0) {
+            braidSign = sprintf("%s0", braidSign );
+        } else if (choiceId == 1) {
+            braidSign = sprintf("%s1", braidSign );
+        }
+        */
+    }
+    return braidSign;
+}
+
+
+// Checks if the new signature exists, if not stores it.
+int IsAlreadyGenerated(){
+   
+    string braidSign = this->GenerateSignature();
+
+    if (!IsStringInArray( braidSign, BraidInstances)) {
+        push(BraidInstances, braidSign);
+        SuccessCount++;
+        if (Verbose) printf("   %s  sP:%d bI:%d\n", braidSign, StartPointId, SuccessCount );
+
+    } else {
+        if (Verbose) printf("   >>> already generated %s sP:%d\n", braidSign, StartPointId);
+        return 0;
+    }
+    return 1;
+}
+
+// safety
+int CheckResult(){
+    int nofBp = len(BraidPointIds);
+    if (nofBp <= 0) {
+        printf("startId:%d  no braid points collected\n", StartPointId);
+        return 0;
+    }
+    return 1;
+}
+
+
+// Loops until goal is reached
+int CollectOneBraid(){
+
+    // collect point ids - the starting one is already pushed in
+    int isDone, res;
+    isDone =0;
+    while(!isDone) {
+               
+        int choiceIdx;
+        res = this->SelectNextPoint( choiceIdx );
+        if (res == QS_DONE ) break;
+        if (res == QS_NOT_FOUND ) {
+            printf("startId:%d  point was not found\n", StartPointId);
+            break;
+        }
+
+        int selPointId = NearPointIds[choiceIdx];
+        vector selPointPos = NearPointPositions[choiceIdx];
+
+        push(BraidPointIds, selPointId);
+        push(BraidChoices, choiceIdx);
+        push(BraidPositions, selPointPos);
+         
+        CurrentPointId = selPointId; // continues from the result
+        CurrentSegment ++;
+        AllSegment ++;
+    }
+
+    this->FinalizeBraid();
+    return res;
+}
+
+
+// runs once in the beginning
+void Intro() {
+    StartPointPos = point(SpineGeoId,"P",StartPointId);
+}
+
+// Generates one braid
+// 0:error 1:ok
+int TryCreateBraid(){
+    int res =0;
+    res = this->CollectOneBraid();
+    if (res == QS_NOT_FOUND){
+        printf("collect failed:%d\n", StartPointId);
+        return 0;
+    } 
+        
+    // check result
+    res = this->CheckResult();
+    if (!res) {
+        printf("check result failed %d\n", StartPointId);
+        return 0;
+    }
+
+    // already generated?    
+    res = this->IsAlreadyGenerated();
+    if (res) {
+
+        // good! so draw the new braid as polyline
+        this->DrawBraidSimple();
+         
+    } else {
+        return 0;
+    } 
+    return 1; 
+}
+
+// the main call
+void BuildAllBraids() {
+    int res;
+    this->Intro();
+
+    while(FailCount < FailLimit) {
+        this->ResetBraid(); // start new braid
+        res = this->TryCreateBraid();
+        if (!res) FailCount++;
+        Attempts++;
+        if (SuccessCount >= MaxBraids) break;
+    }
+    
+    printf(" sP:%02d  braids:%d/%d  fail:%d/%d\n", StartPointId, SuccessCount, MaxBraids, FailCount,FailLimit);
+}
+
+
+
+//struct end
+}
+

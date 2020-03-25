@@ -1,0 +1,23 @@
+- copy all .h files so houdini can find them!
+  hint: $HSITE/houdini15.0/vex/include/
+  
+- attrib VOP script is pointing to the .vfl
+  hint: $JOB/Asset/DynamicFlocking/vexinclude/ProcessCloudPoint.vfl
+  
+- make your own _begin, _each, _end components from the "oneCloudPoint_*" files => your new components
+
+- edit the .vfl to include your own components. Replace "oneCloudPoint_*" files to your new components
+
+- source the .vfl in the attribVOP "Run Over Points"  => witness miracle!
+
+
+the .vfl should look like this:
+
+#include "PointCloudContext_begin.h"    
+#include "oneCloudPoint_begin.h"        //user
+#include "PointCloudContext_pcopen.h"
+#include "oneCloudPoint_each.h"         //user
+#include "PointCloudContext_pcclose.h"
+#include "oneCloudPoint_end.h"          //user
+#include "PointCloudContext_end.h"
+  

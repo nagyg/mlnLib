@@ -1,0 +1,949 @@
+#include "Helpers/mathHelper.h"
+#include "Helpers/pointAttribHelper.h"
+#include "Helpers/detailAttribHelper.h"
+#include "Helpers/pointArrayAttribHelper.h"
+
+float CalcRawLoneliness(int neighbor_count; float max_ncount)
+{
+    if (neighbor_count == 0)
+    {
+        return 1.0; // maximal loner, the formula below also returns this...
+    }
+
+    return 1. - clamp(((float)neighbor_count / max_ncount), 0., 1.);
+}
+
+struct LavaSolver
+{
+    float Time_scale;
+    float Max_ncount;
+    float Cool_geo;
+    float Cool_time;
+    float Heat_xfer_rate;
+    float Hmax;
+    float Nforce_scale;
+    float Max_friction;
+    float RawLone_min;
+    float Max_realdist;
+    float Dynfrict_scale;
+    float Velocity_blend;
+    float Curl_power;
+    float Curl_size;
+    float Curl_yscale;
+    float Curl_dot_low;
+    float Curl_dot_hi;
+    float Psize_mult;
+    float Speed_scale;
+    float Displacement_threshold;
+    float Curl_turbulence_speed;
+    int Position_buffer_size;
+
+    float Current_frame;
+
+    void Init(float time_scale, displacement_threshold, speed_scale, psize_mult, curl_power, curl_size, curl_dotlow, curl_dothigh, curl_turbulence_speed, max_ncount, velocity_blend, dynfrict_scale, max_realdist, cool_geo, cool_time,
+              heat_xfer_rate, nforce_scale, max_friction, rawlone_min)
+    {
+        Time_scale = time_scale;
+        Max_ncount = max_ncount;
+        Cool_geo = cool_geo;
+        Cool_time = cool_time;
+        Heat_xfer_rate = heat_xfer_rate;
+        Nforce_scale = nforce_scale;
+        Max_friction = max_friction;
+        RawLone_min = rawlone_min; // must be measured before the final/ish solve
+        Max_realdist = max_realdist;
+        Dynfrict_scale = dynfrict_scale;
+        Velocity_blend = velocity_blend;
+        Curl_power = curl_power;
+        Curl_size = curl_size;
+        Psize_mult = psize_mult;
+        Curl_dot_low = curl_dotlow;
+        Curl_dot_hi = curl_dothigh;
+        Speed_scale = speed_scale;
+        Displacement_threshold = displacement_threshold;
+        Curl_turbulence_speed = curl_turbulence_speed;
+        //-- runtime stuff
+        Cool_geo *= Time_scale;
+        Cool_time *= Time_scale;
+        Hmax = 1.;
+        Position_buffer_size = 5;
+    }
+
+    int HandleFreezing(int ptnum, simrole, stopped)
+    {
+        int res = 0;
+        if (simrole == 2)
+        {
+            return 1;
+        }
+
+        // movement is constrained or frozen by vellum
+        if (stopped == 1 || stopped == 3)
+        {
+            Spa("simrole", ptnum, 2); // signal lava solver
+            res = 1;
+        }
+
+        return res;
+    }
+
+    float CoolingByGeometry(float heat)
+    {
+        return clamp((heat - Cool_geo), 0., Hmax);
+    }
+
+    float HandleCooling(int ptnum, geo_colliding; float heat, lone)
+    {
+        // constanly cooling over time
+        heat = clamp((heat - (Cool_time * lone)), 0., Hmax);
+        if (geo_colliding > 0)
+        {
+            // was hit with geo -> cooling by geo
+            heat = this->CoolingByGeometry(heat);
+        }
+
+        return heat;
+    }
+
+    // distance_factor: close..far -> 1..0
+    void TransferHeat(float heat, other_heat, distance_factor)
+    {
+        /*
+            heatSign = sign(other_heat - heat);                          // + / - if the other one is hotter then the diff is positive  => that is the base amount of heat the current point can receive
+            heatAmount = abs(other_heat - heat);                         // diff
+            heatAmount *= Heat_xfer_rate * Time_scale * distance_factor; // just a fraction of it
+            heat = clamp(heat + (heatSign * heatAmount), 0., Hmax); 
+            */
+
+        heat = clamp(heat + (sign(other_heat - heat) * (abs(other_heat - heat) * Heat_xfer_rate * Time_scale * distance_factor)), 0., Hmax);
+    }
+
+    vector NoiseByLocation(vector samplePos, normalized_velocity; float heat)
+    {
+        float noise_move = (Current_frame / 25.) * Curl_turbulence_speed;
+
+        vector ss = samplePos;
+        ss.x += noise_move;
+        vector cn = curlnoise(ss * Curl_size);
+
+        ss = samplePos;
+        ss.y += noise_move * 0.33333;
+        cn += curlxnoise(ss * Curl_size * 0.33333);
+
+        ss = samplePos;
+        ss.z += noise_move * 0.73333;
+        cn += onoise(ss * Curl_size * 0.73333);
+
+        float curldot = smooth(0., 1., fit(dot(normalized_velocity, normalize(cn)), Curl_dot_low, Curl_dot_hi, 0., 1.));
+
+        cn *= Curl_power * chramp("curlramp", heat) * curldot;
+        cn.y = 0.0; // flatten effect Y
+        return cn;
+    }
+
+    // note: the heat lookup allows only to grow the particles
+    void PscaleByHeat(int ptnum; float heat)
+    {
+        /*
+            float psc_orig = Gpa("pscorig",ptnum,0.1337);
+            psizelookup = 1. + chramp("psizeramp",heat) * Psize_mult;
+            Spa("pscale",ptnum,  psc_orig*psizelookup);
+            */
+
+        Spa("pscale", ptnum, point(geoself(), "pscorig", ptnum) * (1. + (chramp("psizeramp", heat) * Psize_mult)));
+    }
+
+    void WriteHeat(int ptnum; float heat, heat_prev; int found_stopped_neighbour, colorize_heat)
+    {
+
+        // cold neighbor acts like a geo -> extra cooling
+        if (found_stopped_neighbour > 0)
+        {
+            heat = this->CoolingByGeometry(heat);
+        }
+
+        // deal with heat
+        heat = (heat_prev + heat) / 2.;
+        Spa("heat", ptnum, clamp(heat, 0., Hmax));
+        if (colorize_heat)
+        {
+            vector col = chramp("colorizer", heat);
+            Spa("Cd", ptnum, col);
+        }
+    }
+
+    void HandleSpeedMax(int ptnum; float heat; vector velocity; int write_speed)
+    {
+
+        float sm = chramp("speedramp", heat);
+        Spa("speedmax", ptnum, sm * Speed_scale);
+
+        if (write_speed)
+        {
+            Spa("speed", ptnum, length(velocity));
+        }
+    }
+
+    vector CalculateCurl(int ptnum; vector pos, normalized_velocity; float heat; int write_curl)
+    {
+        vector curlV = this->NoiseByLocation(pos, normalized_velocity, heat);
+        if (write_curl)
+        {
+            Spa("curl", ptnum, curlV);
+        }
+        return curlV * Time_scale;
+    }
+
+    vector CalculateNeighbouringForce(int ptnum, neighbours_count; vector avgPos; float heat; int write_nforce)
+    {
+        vector result = {0, 0, 0};
+
+        //average pos of n
+        if (neighbours_count > 0)
+        {
+            // the hotter the less cohesion it will have   cold..hot 1..0
+            result = (avgPos / (float)neighbours_count) * Nforce_scale * chramp("heatvsneighramp", heat);
+        }
+
+        if (write_nforce)
+        {
+            Spa("nforce", ptnum, result);
+        }
+        return result * Time_scale;
+    }
+
+    vector CalculateVelocityBlending(int ptnum; float heat; vector velocity_accu; float distance_factor; int write_veloacc)
+    {
+        velocity_accu *= Velocity_blend * chramp("veloaccuramp", heat) * distance_factor;
+        if (write_veloacc)
+        {
+            Spa("vaccu", ptnum, velocity_accu);
+        }
+
+        return velocity_accu * Time_scale;
+    }
+
+    void HandleFriction(int ptnum; float heat)
+    {
+        float friction = chramp("frictionramp", heat) * Max_friction; // friction characteristics
+        Spa("friction", ptnum, friction);
+        Spa("dynamicfriction", ptnum, friction * Dynfrict_scale);
+    }
+
+    float CalculateLone(int ptnum, neighbours_count, write_lone, colorize_lone)
+    {
+        float raw_lone = CalcRawLoneliness(neighbours_count, Max_ncount);
+
+        //float lone = smooth(0., 1., fit(raw_lone, RawLone_min, 1., 0., 1.)); << -- this made the whole sim super dull... interestingly large effect... left here for example!!
+        // vs
+        // this formula leaves it vivid
+        float lone = fit(raw_lone, RawLone_min, 1., 0., 1.);
+
+        if (write_lone)
+        {
+            Spa("lone", ptnum, lone);
+        }
+
+        if (colorize_lone)
+        {
+            vector col = chramp("colorloneramp", lone);
+            Spa("Cd", ptnum, col);
+        }
+        return lone;
+    }
+
+    void HandleDisplacementAvg(int ptnum; vector pos; float pscale; int max_samples)
+    {
+
+        vector pos_prev = point(geoself(), "pprevious", ptnum);
+        vector diff = pos - pos_prev;
+        float dLen = length(diff);
+
+        if (dLen < pscale * Displacement_threshold)
+            return;
+
+        //vector freshAvg = {0,0,0};
+        vector freshAvg = AddBufferedVectorValue("vbuf", ptnum, diff, max_samples);
+        Spa("vavg", ptnum, freshAvg);
+    }
+
+    void StoreVelocities(float frame; int ptnum; vector velocity)
+    {
+
+        // runs only in whole frames
+        if (frac(frame) > 0.0)
+            return;
+
+        vector v_a = point(geoself(), "lv_a", ptnum);
+        vector v_b = point(geoself(), "lv_b", ptnum);
+        vector v_c = point(geoself(), "lv_c", ptnum);
+
+        v_c = v_b;
+        v_b = v_a;
+        v_a = velocity;
+
+        Spa("lv_a", ptnum, v_a);
+        Spa("lv_b", ptnum, v_b);
+        Spa("lv_c", ptnum, v_c);
+    }
+
+    void StorePastPositions(int ptnum; vector position)
+    {
+
+        // runs only in whole frames
+        if (frac(Current_frame) > 0.0)
+            return;
+
+        vector pp = point(geoself(), "pprevious", ptnum);
+        if (pp == {0, 0, 0})
+        {
+            pp = position;
+        }
+
+        StoreBufferedVectorValue("pbuf", ptnum, (pp - position), Position_buffer_size);
+    }
+
+    void DoTheLava(float frame; int ptnum; vector pos; int colorize_heat, write_speed, write_veloacc, write_curl, write_nforce, write_lone, colorize_lone)
+    {
+        Current_frame = frame;
+        int max_samples = 25;
+        int neighbours_count = 0;
+        int gazdagret[];
+        gazdagret = point(geoself(), "neighbors", ptnum);
+        neighbours_count = len(gazdagret);
+
+        vector force_accu = {0, 0, 0};
+        vector nforce = {0, 0, 0};
+
+        float lone = this->CalculateLone(ptnum, neighbours_count, write_lone, colorize_lone);
+
+        int geo_colliding = point(geoself(), "hitnum", ptnum); // collision with geo or ground
+        float heat = point(geoself(), "heat", ptnum);
+        float heat_prev = heat;
+        vector velocity = point(geoself(), "v", ptnum);
+        float pscale = point(geoself(), "pscale", ptnum);
+        int stopped = point(geoself(), "stopped", ptnum);
+        int simrole = point(geoself(), "simrole", ptnum);
+
+        int frozen = this->HandleFreezing(ptnum, simrole, stopped);
+
+        vector normalized_velocity = {0, 0, 0};
+        if (!frozen)
+        {
+            normalized_velocity = normalize(velocity);
+        }
+
+        this->HandleDisplacementAvg(ptnum, pos, pscale, max_samples);
+
+        heat = this->HandleCooling(ptnum, geo_colliding, heat, lone);
+
+        //this->StoreVelocities(frame, ptnum, velocity );
+        this->StorePastPositions(ptnum, pos);
+
+        // process neighbours
+        vector oPos, avgP, oVelo, cn;
+        float oHeat, heatSign, heatAmount, oDist, oPscale, maxDist, realDistance, distance_factor_raw, distance_factor, hvsn, vd, vmult;
+        int ni, oStopped, found_stopped_neighbour;
+
+        vector veloAccu = {0, 0, 0};
+        found_stopped_neighbour = 0;
+        avgP = {0, 0, 0}; // nice fallback
+        for (int i = 0; i < neighbours_count; i++)
+        {
+            ni = gazdagret[i];
+            if (ni == ptnum)
+                continue; // safety, it never happens normally
+
+            oPos = point(geoself(), "P", ni);
+            oHeat = point(geoself(), "heat", ni);
+            oPscale = point(geoself(), "pscale", ni);
+            oVelo = point(geoself(), "v", ni);
+            oStopped = point(geoself(), "stopped", ni);
+
+            if (oStopped || oHeat <= 0)
+            {
+                found_stopped_neighbour++;
+            }
+
+            oDist = distance(pos, oPos);
+            realDistance = clamp(oDist - pscale - oPscale, 0., 100000.);      // clamp 0
+            distance_factor_raw = clamp(realDistance / Max_realdist, 0., 1.); // close..far  0..1
+            distance_factor = chramp("distanceramp", distance_factor_raw);    // 1..0 dies out with distance
+
+            this->TransferHeat(heat, oHeat, distance_factor);
+
+            // collect other data
+
+            // close..far 0..1  the further away the neighbour is the stronger the force will be:
+            // it will try to move close to the furthest particle.. well, it can have lot of neighbours...
+            avgP += (oPos - pos) * pow(distance_factor_raw, 1);
+
+            // both not frozen
+            if (!frozen && oStopped == 0)
+            {
+                veloAccu += distance_factor * oVelo;
+            }
+
+        } // each neighbour ends
+
+        this->WriteHeat(ptnum, heat, heat_prev, found_stopped_neighbour, colorize_heat);
+
+        if (!frozen) // active particles
+        {
+            this->HandleSpeedMax(ptnum, heat, velocity, write_speed);
+            this->PscaleByHeat(ptnum, heat);
+
+            force_accu += this->CalculateCurl(ptnum, pos, normalized_velocity, heat, write_curl);
+
+            force_accu += this->CalculateNeighbouringForce(ptnum, neighbours_count, avgP, heat, write_nforce);
+
+            force_accu += this->CalculateVelocityBlending(ptnum, heat, veloAccu, distance_factor, write_veloacc);
+
+            this->HandleFriction(ptnum, heat);
+
+            // apply accumulated force (so far the neighbor force only)
+            vector sysForce = point(geoself(), "force", ptnum);
+            sysForce += force_accu;
+            Spa("force", ptnum, sysForce);
+
+        } // active particles end
+    }
+
+} // end of LavaSolver
+
+// removes sourced points that are overlapping with existing sim particles
+// uses per point pscale attrib and packs rather tight
+void
+CleanSource(int ptnum; vector pos; float radius; float safety)
+{
+    // deal only with the fresh ones
+    if (point(geoself(), "simrole", ptnum) > 0)
+    {
+        return;
+    }
+
+    int maxPts = 2;
+    float oDistance, oPscale, pscale;
+    int oPtnum, oInSim;
+    int survived = 1;
+
+    pscale = point(geoself(), "pscale", ptnum);
+
+    int handle = pcopen(geoself(), "P", pos, radius * 1.05, maxPts);
+    while (pciterate(handle))
+    {
+        // the current point vs itself
+        pcimport(handle, "point.number", oPtnum);
+        if (oPtnum == ptnum)
+            continue;
+
+        // also fresh like the current point
+        pcimport(handle, "simrole", oInSim);
+        if (oInSim == 0)
+            continue;
+
+        // is enemy in range?
+        pcimport(handle, "point.distance", oDistance);
+        pcimport(handle, "pscale", oPscale);
+
+        if (oDistance - pscale - oPscale - (oDistance * safety) > 0)
+            continue;
+
+        // so it must be killed
+        survived = 0;
+        break;
+    }
+    pcclose(handle);
+
+    if (survived == 0)
+    {
+        removepoint(geoself(), ptnum, 1);
+    }
+    else
+    {
+        Spa("simrole", ptnum, 1); // survived. and now it's in the sim
+    }
+}
+
+// removes sourced points that are overlapping with existing sim particles
+// uses single radius
+void CleanSourceSimple(int ptnum; vector pos; float radius)
+{
+    // deal only with the fresh ones
+    if (point(geoself(), "simrole", ptnum) > 0)
+    {
+        return;
+    }
+
+    int maxPts = 2;
+    float oDistance;
+    int oPtnum, oInSim;
+    int survived = 1;
+
+    int handle = pcopen(geoself(), "P", pos, radius, maxPts);
+    while (pciterate(handle))
+    {
+        // the current point vs itself
+        pcimport(handle, "point.number", oPtnum);
+        if (oPtnum == ptnum)
+            continue;
+
+        // also fresh like the current point
+        pcimport(handle, "simrole", oInSim);
+        if (oInSim == 0)
+            continue;
+
+        // is enemy in range?
+        pcimport(handle, "point.distance", oDistance);
+        if (oDistance > radius)
+            continue;
+
+        // so it must be killed
+        survived = 0;
+        break;
+    }
+    pcclose(handle);
+
+    if (survived == 0)
+    {
+        removepoint(geoself(), ptnum, 1);
+    }
+    else
+    {
+        Spa("simrole", ptnum, 1); // survived. and now it's in the sim
+    }
+}
+
+//  -------------- DIAGNOSTICS ----------------------------
+
+void DrawNeighbours(int every_nth)
+{
+    int neighbours_count = 0;
+    int gazdagret[];
+    int ni, prim_id;
+    int nofp = npoints(geoself());
+    for (int j = 0; j < nofp; j++)
+    {
+        if ((j % every_nth) != 0)
+            continue;
+
+        gazdagret = point(geoself(), "neighbors", j);
+        neighbours_count = len(gazdagret);
+        if (neighbours_count > 0)
+        {
+            for (int i = 0; i < neighbours_count; i++)
+            {
+                ni = gazdagret[i];
+                addprim(geoself(), "polyline", j, ni);
+            }
+        }
+    }
+}
+
+void CollectDiagPerPoint(int ptnum, max_ncount; vector pos; float pscale)
+{
+    int ni;
+    int nc = 0;
+    int gazdagret[];
+    gazdagret = point(geoself(), "neighbors", ptnum);
+    nc = len(gazdagret);
+    float lone = CalcRawLoneliness(nc, max_ncount);
+    Spa("rawlone", ptnum, lone);
+
+    vector oPos;
+    float oPscale, oDist, realDistance;
+    float maxDist = -1;
+    float maxRealDist = -1;
+    for (int i = 0; i < nc; i++)
+    {
+        ni = gazdagret[i];
+        oPos = point(geoself(), "P", ni);
+        oPscale = point(geoself(), "pscale", ni);
+
+        oDist = distance(pos, oPos);
+        if (oDist > maxDist)
+        {
+            maxDist = oDist;
+        }
+
+        realDistance = clamp(oDist - pscale - oPscale, 0., 100000000.);
+        if (realDistance > maxRealDist)
+        {
+            maxRealDist = realDistance;
+        }
+    }
+    Spa("maxdist", ptnum, maxDist);
+    Spa("maxrd", ptnum, maxRealDist);
+}
+
+void CollectDiagDetail()
+{
+    int nofp = npoints(geoself());
+    float md, lone, rd;
+    float maxDist = 0;
+    float maxRd = 0;
+    float minLone = 1;
+    for (int i = 0; i < nofp; i++)
+    {
+        md = point(geoself(), "maxdist", i);
+        lone = point(geoself(), "rawlone", i);
+        rd = point(geoself(), "maxrd", i);
+
+        if (md > maxDist)
+        {
+            maxDist = md;
+        }
+
+        if (rd > maxRd)
+        {
+            maxRd = rd;
+        }
+
+        if (lone < minLone)
+        {
+            minLone = lone;
+        }
+    }
+
+    float currentMaxRd = Dgf("max_rd");
+    float currentMax = Dgf("max_dist");
+    float currentMinLone = Dgf("min_lone");
+
+    if (currentMinLone == 0)
+    { // initial hack
+        currentMinLone = 100;
+    }
+
+    if (currentMax < maxDist)
+    {
+        Dsf("max_dist", maxDist);
+    }
+
+    if (currentMaxRd < maxRd)
+    {
+        Dsf("max_rd", maxRd);
+    }
+
+    //printf("nofP:%d\tmin lone:%f %f\n", nofp, minLone, currentMinLone);
+    if (currentMinLone > minLone)
+    {
+        Dsf("min_lone", minLone);
+    }
+}
+
+void MeasureVdbSdfRange()
+{
+    float smin = 100000;
+    float smax = -100000;
+    vector p = {0, 0, 0};
+    float sfl = 0;
+    vector svec = {0, 0, 0};
+
+    int nofp = npoints(geoself());
+    for (int i = 0; i < nofp; i++)
+    {
+        p = point(geoself(), "P", i);
+        sfl = volumesample(1, "surface", p);
+        svec = volumegradient(1, "surface", p);
+
+        if (sfl < smin)
+        {
+            smin = sfl;
+        }
+
+        if (sfl > smax)
+        {
+            smax = sfl;
+        }
+    }
+
+    Dsf("surf_min", smin);
+    Dsf("surf_max", smax);
+}
+
+//------------------------------------------------------
+/* 
+notes on grains/vellum attrib "stopped"
+
+Stopped controls both orientation and position updates via bits 0 and 1.
+
+0 - Particle is free.
+1 - Particle can rotate, but is fixed in space.
+2 - Particle can’t rotate, but is free to move in space.
+3 - Particle can’t rotate or move.
+
+*/
+void ColorizeBySimRole(int ptnum, simrole, stopped)
+{
+
+    if (simrole == 0)
+    {
+        Spa("Cd", ptnum, {0, 1, 0.25}); // fresh
+    }
+    else if (simrole == 1) // active in sim
+    {
+        Spa("Cd", ptnum, {1, 0.9, 0.2});
+    }
+    else if (simrole == 2) // frozen
+    {
+        Spa("Cd", ptnum, {0, 0, 1});
+    }
+    else
+    {
+        Spa("Cd", ptnum, {1, 0, 0}); // illegal simrole, WTF?
+        printf("illegal simrole ptnum:%d - simrole:%d - stopped:%d\n", ptnum, simrole, stopped);
+    }
+
+    // display sleep state
+    if (stopped == 1)
+    {
+        Spa("Cd", ptnum, {0, 0, 0});
+    }
+}
+
+vector GetPointByVels(int ptnum; vector pos; float sample_time, path_scale)
+{
+
+    vector pbuf[];
+    pbuf = GetVectorArrayAttrib("pbuf", ptnum);
+
+    vector p0 = pos - (pbuf[0] * path_scale);
+    vector p1 = pos + (pbuf[1] * path_scale);
+    vector p2 = p1 + (pbuf[2] * path_scale);
+    vector p3 = p2 + (pbuf[3] * path_scale);
+    vector p4 = p3 + (pbuf[4] * path_scale);
+
+    return ckspline(sample_time,
+                    p0, 0.0,
+                    pos, 0.2,
+                    p1, 0.4,
+                    p2, 0.6,
+                    p3, 0.8,
+                    p4, 1.0);
+}
+
+void AddPointByVels(int ptnum; vector pos; float sample_time, path_scale)
+{
+
+    addpoint(geoself(), GetPointByVels(ptnum, pos, sample_time, path_scale));
+}
+
+int GetSdfValue(vector pos; float sdf_min, sdf_max, threshold_low, threshold_high, sdf_sample)
+{
+
+    sdf_sample = volumesample(1, "surface", pos);
+
+    if (sdf_sample < threshold_low || sdf_sample > threshold_high || sdf_sample < sdf_min || sdf_sample > sdf_max)
+    {
+        return 0; // invalid
+    }
+
+    return 1; // valid
+}
+
+int GetSdfGradient(vector pos, volume_gradient)
+{
+    volume_gradient = volumegradient(1, "surface", pos);
+    if (volume_gradient == {0, 0, 0})
+    {
+        return 0;
+    }
+    return 1;
+}
+
+int SampleLavaSdf(vector pos; float sdf_min, sdf_max, threshold_low, threshold_high, sdf_sample; vector volume_gradient)
+{
+
+    // try to sample the sdf
+    if (!GetSdfValue(pos, sdf_min, sdf_max, threshold_low, threshold_high, sdf_sample))
+    {
+        return 0;
+    }
+
+    // ok we can go on an process this point
+    return GetSdfGradient(pos, volume_gradient);
+}
+
+vector GetColorForLappingSources(int inside; float contrib)
+{
+    vector col = {0.5, 0.5, 0.5};
+
+    if (inside)
+    {
+
+        col.x = 0;
+        col.y = 1;
+    }
+    else
+    {
+
+        col.x = 1;
+        col.y = 0;
+    }
+
+    col *= contrib;
+    col.z = contrib;
+
+    return col;
+}
+
+void CalculateLappingSpace(int ptnum; vector volume_gradient, v_normal, v_direction)
+{
+
+    vector vAvg = point(geoself(), "vavg", ptnum);
+    vector k = cross(vAvg, volume_gradient);
+    vector kk = cross(k, volume_gradient);
+
+    // Normal: volume_gradient
+    v_normal = volume_gradient; // later try sampling surface normal at intersection with this << $$$
+    // Direction: kk
+    v_direction = kk;
+    // Roll: k
+
+    Spa("k", ptnum, k);
+    Spa("kk", ptnum, kk);
+    Spa("volgrad", ptnum, volume_gradient);
+}
+
+void FilterLappingSources(int ptnum; vector pos; float sdf_min, sdf_max, threshold_low, threshold_high, surf_scale, surf_offset; int kill_unused, colorize_sources, displace_pos)
+{
+
+    float sdf_sample = 0;
+    vector volume_gradient = {0, 0, 0};
+    if (!SampleLavaSdf(pos, sdf_min, sdf_max, threshold_low, threshold_high, sdf_sample, volume_gradient))
+    {
+
+        if (kill_unused)
+        {
+            removepoint(geoself(), ptnum, 1);
+        }
+
+        return;
+    }
+
+    int inside = (sdf_sample <= 0);
+    float contrib = (inside ? 1. - (abs(sdf_sample) / abs(threshold_low)) : 1. - (sdf_sample / threshold_high));
+
+    if (colorize_sources)
+    {
+        Spa("Cd", ptnum, GetColorForLappingSources(inside, contrib));
+    }
+
+    // level calculated from the sdf surface in out field
+    float lapping_level = fit(sdf_sample, threshold_low, threshold_high, 0., 1.);
+    Spa("lv_level", ptnum, lapping_level);
+
+    vector v_normal, v_direction;
+    v_normal = {0, 0, 0};
+    v_direction = {0, 0, 0};
+
+    CalculateLappingSpace(ptnum, volume_gradient, v_normal, v_direction);
+
+    float s_sign = 1;
+    if (!inside)
+    {
+        s_sign = -1;
+    }
+
+    vector to_surf = abs(sdf_sample) * normalize(v_normal) * s_sign * surf_scale;
+    vector away_surf = normalize(v_normal) * surf_offset;
+
+    // offset first to surface then above it, to prepare projection
+    if (displace_pos)
+    {
+        Spa("P", ptnum, pos + to_surf + away_surf);
+    }
+
+    // create and set orient
+    matrix3 m = maketransform(normalize(v_direction), normalize(v_normal));
+    vector4 q = quaternion(m);
+    Spa("orient", ptnum, q);
+}
+
+// just diag / debug
+void ColorizeLavaSdf(int ptnum; vector pos; float sdf_min, sdf_max, threshold_low, threshold_high)
+{
+
+    float sdfVal = volumesample(1, "surface", pos);
+    int inside = (sdfVal <= 0);
+
+    printf("sdf: [%f   %f]\tthreshold: [%f  %f]\tinside:%d\n", sdf_min, sdf_max, threshold_low, threshold_high, inside);
+
+    vector col = {0.5, 0.5, 0.5};
+
+    if (inside)
+    {
+
+        col.x = 0;
+        col.y = 1;
+        col.z *= 0.1;
+    }
+    else
+    {
+
+        col.x = 1;
+        col.y = 0.0;
+        col.z *= 0.1;
+    }
+
+    if (sdfVal < threshold_low)
+    {
+        // mostest inside, farthest from surface - below low threshold - there is no valid sdf value hence there is no volume gradient either. VdbSdf attribute. Good to know!
+        col.y *= 0.2;
+    }
+
+    if (sdfVal > threshold_high)
+    {
+        // farthest outside - these are the points outside of the surface but inside the useful range where the sdf value is correct and the volumegradient also proper - after the renorm process usually these values are accurate to the whole range.
+        col.x *= 0.2;
+    }
+
+    // safety - later it can be as exit / continue
+    sdfVal = clamp(sdfVal, threshold_low, threshold_high);
+
+    float contrib = (inside ? 1. - (abs(sdfVal) / abs(threshold_low)) : 1. - (sdfVal / threshold_high));
+
+    col *= contrib;
+    col.z = contrib;
+
+    Spa("Cd", ptnum, col);
+
+    vector volume_gradient = volumegradient(1, "surface", pos);
+    Spa("volgrad", ptnum, volume_gradient);
+}
+
+//--------- projection
+
+void ProjectToSurface(int ptnum; vector pos, ray_dir; float ray_len, level_scale, level_offset; int debug_intersect)
+{
+
+    float lv_level = point(geoself(), "lv_level", ptnum);
+    vector iRay = normalize(ray_dir) * ray_len;
+    vector iP = {0, 0, 0};
+    float iU, iV;
+    iU = 0;
+    iV = 0;
+    int res = intersect(1, pos, iRay, iP, iU, iV);
+
+    if (debug_intersect) {
+
+        if ( res == -1) {
+            Spa("Cd",ptnum, {1,0,0});
+        } else {
+            Spa("Cd",ptnum, {0.1,0.8,1});
+        }
+
+    } else {
+
+        if (res == -1)
+        {
+            iP = minpos(1, pos);
+        }
+
+    }
+
+    vector diff = normalize(pos - iP) ;
+    diff = (diff * lv_level * level_scale) + (diff * level_offset);
+
+    Spa("P", ptnum, iP + diff);
+}

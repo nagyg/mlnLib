@@ -1,0 +1,8 @@
+#vs dirs
+**/.vscode
+
+# backup dirs
+otls/backup
+
+# backup files
+*_bak*.hip

@@ -1,0 +1,246 @@
+#include "Helpers/pointAttribHelper.h"
+#include "Helpers/primAttribHelper.h"
+
+struct LinePimp
+{
+  
+    // per prim
+    string PridName;
+    string PlidName;
+    string NrmidName;
+    string ClenName;
+    string RootPosName;
+    string SegmentLenName;
+    string TangentName;
+    string RndName;
+    string FRampName;
+    string NoizName;
+    string SelfLengthName;
+
+    void InitNamesForPrim(string pridName, plidName, nrmidName, clenName, rootPosName, segmentLenName, tangentName, rndName, fRampName, noizName, selfLengthName)
+    {
+        PridName = pridName;
+        PlidName = plidName;
+        NrmidName = nrmidName;
+        ClenName = clenName;
+        RootPosName = rootPosName;
+        SegmentLenName = segmentLenName;
+        TangentName = tangentName;
+        RndName = rndName;
+        FRampName = fRampName;
+        NoizName = noizName;
+        SelfLengthName = selfLengthName;
+    }
+
+    int ReverseOrder;
+    int AddRootPos;
+    int AddRefLength;
+    int AddPlid;
+    int AddNrmid;
+    int AddTangent;
+    int AddSegLen;
+    int AddCurrLen;
+    int AddRand;
+    int AddFloatRamp;
+    int AddNoiz;
+    int AddSelfLength;
+    int AddUv;
+    int AddPrid;
+
+    void InitOperationsForPrim(int reverseOrder, addRootPos, addRefLength, addPlid, addNrmid, addTangent, addSegLen, addCurrLen, addRand, addFloatRamp, addNoiz, addSelfLength, addUv, addPrid)
+    {
+        ReverseOrder = reverseOrder;
+        AddRootPos = addRootPos;
+        AddRefLength = addRefLength;
+        AddPlid = addPlid;
+        AddNrmid = addNrmid;
+        AddTangent = addTangent;
+        AddSegLen = addSegLen;
+        AddCurrLen = addCurrLen;
+        AddRand = addRand;
+        AddFloatRamp = addFloatRamp;
+        AddNoiz = addNoiz;
+        AddSelfLength = addSelfLength;
+        AddUv = addUv;
+        AddPrid = addPrid;
+    }
+
+    int UseLength;
+    float RandMin;
+    float RandMax;
+    float RandExp;
+    float FRampMult;
+    float NoizScale;
+    float NoizOffset;
+    int NoizAroundZero;
+    float NoizMin;
+    float NoizMax;
+    float NoizExp;
+
+    void InitParamsForPrim(float randMin, randMax, randExp, fRampMult, noizScale, noizOffset, noizMin, noizMax, noizExp; int noizAroundZero, useLength)
+    {
+        RandMin = randMin;
+        RandMax = randMax;
+        RandExp = randExp;
+        FRampMult = fRampMult;
+        NoizScale = noizScale;
+        NoizOffset = noizOffset;
+        NoizMin = noizMin;
+        NoizMax = noizMax;
+        NoizExp = noizExp;
+        NoizAroundZero = noizAroundZero;
+        UseLength = useLength;
+    }
+
+    void PimpPerPrimitive(int primNum; float seed)
+    {
+
+        int pointIds[] = primpoints(geoself(), primNum);
+        int nofPt = len(pointIds);
+        if (nofPt <= 1)
+            return;
+        
+        if (ReverseOrder)
+        {
+            pointIds = reverse(pointIds);
+        }
+
+        if (AddRootPos)
+        {
+            vector ppp = point(geoself(), "P", pointIds[0]);
+            SetAndCreatePrimAttribute(RootPosName, primNum, ppp);
+        }
+        
+        float mPerimeter = 0.0;
+        mPerimeter = primintrinsic(geoself(), "measuredperimeter", primNum);
+
+        if (AddRefLength)
+        {
+            SetAndCreatePrimAttribute("reflength", primNum, mPerimeter);
+        }
+
+        float toNextLen, nrmId, rf, r, sclRamp, nMult, rawNoiz, nz, uC, nrLen;
+        vector posCurr, posNext, toNext, rS;
+        int isFirst, isLast, idxNext, idCurr, idNext;
+
+        float lenAccu = 0.0;
+        int lastIndex = nofPt - 1;
+
+        for (int i = 0; i < nofPt; i++)
+        {
+
+            isFirst = (i == 0);
+            isLast = (i == lastIndex);
+            idxNext = (isLast) ? i - 1 : i + 1;
+
+            idCurr = pointIds[i];
+            idNext = pointIds[idxNext];
+
+            posCurr = point(geoself(), "P", idCurr);
+            posNext = point(geoself(), "P", idNext);
+            toNext = posNext - posCurr;
+            toNextLen = length(toNext);
+
+            // 0..1 along line by order
+            nrmId = float(i) / float(nofPt - 1);
+
+            // 0..1 along line by distances along line
+            nrLen = lenAccu / mPerimeter;
+
+            rf = (0.39998771 + (seed * 0.94) + float(i + 2) * 0.1733377 + float(primNum) * 0.791143) * 0.9977;
+            rS = set(rf, rf / 3.333, -1 * i * rf);
+            r = fit01(pow(rand((posCurr - posNext) + rS), RandExp), RandMin, RandMax);
+
+            if (isLast)
+                toNext *= -1;
+
+            if (AddPlid)
+            { // per line id
+                Spa(PlidName, idCurr, i);
+            }
+
+            if (AddNrmid)
+            {
+                if (UseLength)
+                {
+                    Spa(NrmidName, idCurr, nrLen);
+                }
+                else
+                {
+                    Spa(NrmidName, idCurr, nrmId);
+                }
+            }
+
+            if (AddUv)
+            {
+                Spa("uv", idCurr, set(nrLen, 0.5, 0));
+            }
+
+            if (AddTangent)
+            {
+                Spa(TangentName, idCurr, normalize(toNext));
+            }
+
+            if (AddSegLen)
+            {
+                Spa(SegmentLenName, idCurr, toNextLen);
+            }
+
+            if (AddCurrLen)
+            {
+                Spa(ClenName, idCurr, lenAccu);
+            }
+             
+            if (!isLast)
+                lenAccu += toNextLen;
+
+            if (AddRand)
+            {
+                Spa(RndName, idCurr, r);
+            }
+
+            if (AddFloatRamp)
+            {
+                sclRamp = chramp("framp", nrLen);
+                Spa(FRampName, idCurr, sclRamp * FRampMult);
+            }
+
+            if (AddNoiz)
+            {
+                rawNoiz = flownoise(posCurr * NoizScale, NoizOffset);
+                nMult = chramp("noizramp", nrLen);
+
+                if (NoizAroundZero)
+                {
+                    // -1 .. +1    move center of the noise to zero
+                    nz = nMult * NoizMax * 2. * ((pow(rawNoiz, NoizExp) - 0.5));
+                }
+                else
+                {
+                    // fit noise to min max
+                    nz = nMult * fit01(pow(rawNoiz, NoizExp), NoizMin, NoizMax);
+                }
+
+                Spa(NoizName, idCurr, nz);
+            }
+        }
+
+        if (AddSelfLength)
+        {
+            SetAndCreatePrimAttribute(SelfLengthName, primNum, lenAccu);
+        }
+        
+        if (AddPrid)
+        {
+            if (ReverseOrder)
+            {
+                int np = nprimitives(geoself());
+                SetAndCreatePrimAttribute(PridName, primNum, np - primNum);
+            }
+            else
+            {
+                SetAndCreatePrimAttribute(PridName, primNum, primNum + 1);
+            }
+        }
+    }
+}

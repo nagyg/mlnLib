@@ -1,0 +1,106 @@
+#include "Helpers/pointAttribHelper.h"
+
+struct XferByIUv {
+
+vector2 UvOffset;
+int FlipU, FlipV;
+int NofAttributes = 0;
+string SourceUvName = "";
+
+string AttributeNames[] = {};
+int AttributeTypes[] = {};
+int AttributeSizes[] = {};
+string AttributeTypeInfos[] = {};
+
+
+// 0 - exit   1 - work
+int Prepare(string attrNamesString, sourceUvName; int flipU, flipV; vector2 uvOffset) {
+    FlipU = flipU;
+    FlipV = flipV;
+    UvOffset = uvOffset;
+
+    string cAttr;
+    string attrNames[] = split(attrNamesString, " ", int(len(attrNamesString)/2));
+    NofAttributes = len(attrNames);
+    if (NofAttributes <= 0) return 0; // nothing to do
+
+    HasAllPointAttribs(1,attrNames, AttributeTypes, AttributeSizes, AttributeTypeInfos);
+
+    // check source uv
+    if (!haspointattrib(geoself(), sourceUvName)) {
+        printf("no source uv:[%s] on input 0\n", sourceUvName);
+    }
+
+    SourceUvName = sourceUvName;
+    AttributeNames = attrNames;
+    return 1; // do the transfer
+}
+
+void Transfer(int primid) {
+    
+    string cAttr, cAttrTypeInfo;
+    int cAttrType, cAttrSize, intVal;
+    float floatVal;
+    vector vecVal;
+    vector2 vec2Val;
+    vector4 qtrnVal;
+
+    for(int j=0; j < NofAttributes; j++ ){
+        cAttr = AttributeNames[j];
+        cAttrType = AttributeTypes[j];
+        cAttrSize = AttributeSizes[j];
+        cAttrTypeInfo = AttributeTypeInfos[j];
+
+        if (cAttrType <0) continue;
+        //printf("%d %d %s\n", cAttrType, cAttrSize, cAttr);
+        int pps[] = primpoints(geoself(), primid);
+        int nofPt = len(pps);
+        for (int i=0; i < nofPt; i++) {
+            int pid = pps[i];
+            vector uv = point(geoself(),SourceUvName, pid );
+
+            if (FlipU) {
+                uv.x = 1.- uv.x;
+            }
+
+            if (FlipV) {
+                uv.y = 1.- uv.y; //more like a why not
+            }
+
+            uv.x += UvOffset.x;
+            uv.y += UvOffset.y;
+
+            if (cAttrType == 0) {
+                // integer
+                intVal = primuv(1, cAttr, primid, uv);
+                Spa(cAttr,pid, intVal);
+                
+            } else if (cAttrType == 1 && cAttrSize == 1) {
+                // float
+                floatVal = primuv(1, cAttr, primid, uv);
+                Spa(cAttr,pid, floatVal);
+                
+            } else if (cAttrType == 1 && cAttrSize == 2) {
+                // vec2
+                vec2Val = primuv(1, cAttr, primid, uv); 
+                setpointattrib(geoself(), cAttr, pid, vec2Val, "set");
+            } else if (cAttrType == 1 && cAttrSize == 3) {
+                // vector
+                vecVal = primuv(1, cAttr, primid, uv);
+                Spa(cAttr, pid, vecVal);
+            } else if (cAttrType == 1 && cAttrSize == 4) {
+                // quaternion
+                qtrnVal = primuv(1, cAttr, primid, uv);
+                setpointattrib(geoself(), cAttr, pid, qtrnVal, "set");
+            }
+            setattribtypeinfo(geoself(), "point", cAttr, cAttrTypeInfo);
+            //printf("%s %s\n",cAttr, cAttrTypeInfo);
+        }
+    }
+}
+
+
+
+
+// struct end
+}

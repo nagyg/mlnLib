@@ -1,0 +1,59 @@
+#include "Helpers/pointAttribHelper.h"
+
+
+void PimpLine(int primNum; float seed; int addPlid, addNrmid, addSegLen, addCurrLen, addTangent, addRand ){
+    int idNext, idCurr, idxNext, isLast, isFirst;
+    vector toNext, posCurr, posNext;
+    float toNextLen, r, rS;
+    float lenAccu = 0.0;
+
+    int pointIds[] = primpoints(geoself(), primNum);
+    int nofPt = len(pointIds);
+    if (nofPt <= 1) return;
+    
+    int lastIndex = nofPt-1;
+    
+    for(int i=0; i < nofPt; i++) {
+
+        isFirst = (i == 0);
+        isLast = (i == lastIndex);
+        idxNext = (isLast) ? i-1 : i+1;
+
+        idCurr = pointIds[i];
+        idNext = pointIds[idxNext];
+
+        posCurr = point(geoself(),"P", idCurr);
+        posNext = point(geoself(),"P", idNext);
+        toNext = posNext - posCurr;
+        toNextLen = length(toNext);
+
+        if (isLast) toNext *= -1;
+
+        if (addPlid) { // per line id
+            Spa("plid", idCurr, i);
+        }
+
+        if (addNrmid) { // 0..1 along line
+            Spa("nrmid", idCurr, float(i) / float(nofPt-1));
+        }
+
+        if (addTangent) {
+            Spa("tangent", idCurr, normalize(toNext));
+        }
+
+        if (addSegLen) {
+            Spa("sgmlen", idCurr, toNextLen );
+        }
+
+        if (addCurrLen) {
+            Spa("clen", idCurr, lenAccu);
+            lenAccu += toNextLen;
+        }
+
+        if (addRand) {
+            rS = (0.39998771 +(seed*0.94) + float(i+2)*0.1733377 + float(primNum)*0.791143)*0.9977;
+            r = rand( (posCurr - posNext) + rS);
+            Spa("rnd", idCurr, r);
+        }
+    }
+}

@@ -1,0 +1,22 @@
+#include "DynamicFlocking/dynFlock_functions.h"
+
+// cvex init
+#include "Helpers/PointCloudContext_begin.h" 
+
+// your code to init stuff
+#include "Helpers/oneCloudPoint_begin.h"
+
+// open point cloud, do iterations on points
+#include "Helpers/PointCloudContext_pcopen.h"
+
+// your code for each pciterate cycle
+#include "Helpers/oneCloudPoint_each.h"
+
+// close point cloud
+#include "Helpers/PointCloudContext_pcclose.h"
+
+// your code to finalize work
+#include "Helpers/oneCloudPoint_end.h"
+
+// end function
+#include "Helpers/PointCloudContext_end.h"

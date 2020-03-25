@@ -1,0 +1,182 @@
+#include "Helpers/pointAttribHelper.h"
+#include "Helpers/mathHelper.h"
+// runs on points
+
+// samples itself - this should be elevated to generic function - so niceliy encapsulated / later...
+int GetCollisionForce(int sourceId; vector sourcePos; float pointSize, pcSearchRadius; int maxPoints; vector resultForce){
+    //float pcSearchRadius = chf("searchRadius");
+
+    resultForce = {0,0,0};
+    float oDistance, oPscale, mPscale, realDistance, nearRadius, distanceFactor, accuFriction, friction;
+    int oPtnum, count;
+    vector oP, fromO, accuForce;
+
+    nearRadius = 0;
+    accuForce = {0,0,0};
+    accuFriction = 0;
+    int handle = pcopen(geoself(),"P",sourcePos, pcSearchRadius, maxPoints+1);
+
+    count=0;
+    while (pciterate(handle))
+    {  
+        pcimport(handle, "point.number", oPtnum);
+        if (oPtnum == sourceId) continue;
+
+        pcimport(handle, "P", oP);
+        pcimport(handle, "point.distance", oDistance);
+        pcimport(handle, "pscale", oPscale);
+        realDistance = oDistance - pointSize - oPscale;
+        distanceFactor = 1.- BiasedSmooth( clamp(realDistance,0.,1.) , nearRadius, pcSearchRadius, 1);
+
+        if (realDistance < 0) {
+            friction = abs(realDistance) / (pointSize + oPscale);
+            accuFriction += friction;
+            fromO = distanceFactor * friction * normalize(sourcePos - oP);
+            accuForce += fromO;
+            count++;
+        }
+        
+    }
+    pcclose(handle);
+
+    if (count == 0) return 0; // no points around
+
+    resultForce = accuForce / accuFriction / count;
+
+    Spa("collv",sourceId,resultForce); // debug only
+    return 1;
+}
+
+int GetNearestSurfacePos(int inputSurface, useGeoPoints; vector currentPosition; float surfacePosSearchRadius; vector resultPos) {
+    
+    resultPos  = {0,0,0};
+    int foundPos = 0;
+
+    if (useGeoPoints) {
+
+        // quick, but uses points - surface topology dependent - not always good
+        int nearestId = nearpoint(inputSurface, currentPosition, surfacePosSearchRadius);
+        if (nearestId < 0) {
+            // no geometry point in radius - ie: no points
+        } else {
+            foundPos = 1;
+            resultPos = point(inputSurface, "P", nearestId);
+        }
+
+    } else {
+        // accurate - and as per usual - but slow
+        resultPos = minpos(inputSurface, currentPosition, surfacePosSearchRadius);
+
+        if (IsTheSame(resultPos, currentPosition)) {
+            // this is how minPos signals back
+            // no surface point in radius - ie: the surface is farther than the radius
+        } else {
+            foundPos = 1;
+        }
+    }
+
+    return foundPos;
+}
+
+void SetGoal(int  pointNumber, gVal){
+    Spa("goal",pointNumber, gVal);
+}
+
+// the main call, runs on points
+// inside - intersecting - goalrange - searchrange -- the sections to deal with
+int GradientDeformByInputs(vector currentPosition; int pointNumber, inputGradient, inputSurface, inputSdf, maxPoints, useGeoPoints; float surfacePosSearchRadius, goalRange, pointSize, gradientForceScale, surfaceForceScale, collisionForceScale; vector resultDisplace ) {
+
+    //should be param...
+    int COLORIZE = 1;
+    
+    float INSIDEPOWER = 2; // boost if inside
+    float INTERSECTPOWER = 1.5; // less than inside but more than normal
+
+    vector DARKRED = {0.8, 0,0};
+    vector GREY = {0.4, 0.4, 1};
+    vector LITEGREEN = {0.2, 1, 0.2};
+    vector ORANGE = {1, 0.7, 0};
+    vector YELLOW = {0.7, 0.7, 0};
+
+    vector nullv = {0,0,0};
+    vector gradV;
+    int isColliding;
+    int goal =0;
+    resultDisplace = {0,0,0};// init the value, make it safe to add anyways
+    int firstIdx = 0;
+    vector nearestPos = {0,0,0};
+    int foundSurfPos = 0;
+    vector collisionForce = {0,0,0};
+    vector surfaceForce = {0,0,0};
+    int isInside = 0;
+
+    vector choiceDir = Gpa("choicedir",pointNumber, nullv);
+    //resultDisplace += choiceDir;
+     
+
+    float sdfVal = volumesample(inputSdf,firstIdx,currentPosition);
+    isInside = sdfVal <= 0; // the point we are processing is inside the surface, only a boosted gradient is needed as out force
+   
+    // sample the gradient - it is needed anyway
+    gradV = volumesamplev(inputGradient, firstIdx, currentPosition);
+
+    if (isInside) {
+        // inside the sdf, so let's get out;
+        resultDisplace = gradV * INSIDEPOWER;
+        SetGoal(pointNumber, goal);
+        if (COLORIZE) Spa("Cd",pointNumber, DARKRED);
+        return goal;
+    }
+
+    // query collision with itself
+    isColliding = GetCollisionForce(pointNumber, currentPosition, pointSize, surfacePosSearchRadius, maxPoints, collisionForce);
+    Spa("selfcolliding",pointNumber, isColliding);
+    collisionForce *= collisionForceScale;
+
+    foundSurfPos = GetNearestSurfacePos(inputSurface, useGeoPoints, currentPosition, surfacePosSearchRadius, nearestPos);
+    if (!foundSurfPos) {
+        goal =1; // we just want to move the close points - this one is out of range for this operation
+        SetGoal(pointNumber, goal);
+        if (COLORIZE) Spa("Cd",pointNumber, GREY);
+        return goal;
+    }
+
+    // this is the force that attracts the point towards the surface
+    vector toSurf = nearestPos - currentPosition;
+    float distToSurf = length(toSurf);
+    float physSurfDist = distToSurf - pointSize; // a virtual size of the particle / wire / etc
+    vector surfDir = normalize(toSurf);
+    surfaceForce = surfDir * surfaceForceScale;
+
+    Spa("surfdist",pointNumber,distToSurf);  //debug
+    Spa("sdf",pointNumber,sdfVal);  //debug
+
+
+    if (distToSurf <= goalRange && distToSurf >= pointSize && !isColliding) {
+        // within goal range and not intersecting with surface - good pos
+        goal =1;
+        SetGoal(pointNumber, goal);
+        if (COLORIZE) Spa("Cd",pointNumber, LITEGREEN);
+        return goal;
+    }
+    
+    
+    if (physSurfDist <= 0) {
+        // intersecting with surface
+        gradV *= INTERSECTPOWER; // boost gradV a bit
+        if (COLORIZE) Spa("Cd",pointNumber, ORANGE);
+    } else if (physSurfDist >= goalRange) {
+        // outside of goalrange 
+        // everything is normal here, we have to move these points
+        if (COLORIZE) Spa("Cd",pointNumber, YELLOW);
+    }
+
+    resultDisplace += (surfaceForce + gradV + collisionForce);
+
+    SetGoal(pointNumber, goal);
+    return goal;
+}
+
+
+
+

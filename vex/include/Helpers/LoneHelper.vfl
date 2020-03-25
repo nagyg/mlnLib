@@ -1,0 +1,169 @@
+#include "Helpers/pointAttribHelper.h"
+#include "Helpers/mathHelper.h"
+
+// -- works by using a uniform radius
+struct KeepDistance {
+
+
+    int Done[] ={};
+    int Survived[] ={};
+
+    int InputId = 0;
+    int NofSourcePts = 0;
+    
+    float Range = 0;
+    string AttribName = "";
+
+    void Init(int inputId; float range; string attribName) {
+
+        InputId = inputId;
+        NofSourcePts = npoints(inputId);
+        resize(Done, NofSourcePts);
+        resize(Survived, NofSourcePts);
+        Range = range;
+        AttribName = attribName;
+    }
+
+    void CloudLoop(int sourceIdx) {
+
+        // early exit
+        if (Done[sourceIdx]) return;
+
+        // this survives 
+        Done[sourceIdx] =1; // set processed
+        Survived[sourceIdx] =1; // and survived
+
+        int oPtnum, count, isDone;
+        oPtnum =-1;
+        vector sourcePos = point(InputId, "P", sourceIdx);
+        count=0;
+
+        int handle = pcopen(InputId,"P",sourcePos, Range, NofSourcePts+1);
+        while (pciterate(handle))
+        {  
+            pcimport(handle, "point.number", oPtnum);
+            if ( InputId == 0 && oPtnum == sourceIdx) continue;
+            if (!Done[oPtnum]) {
+                Done[oPtnum] = 1;
+            }
+        }
+        pcclose(handle);
+    }
+
+    void Run() {
+
+        for(int i=0; i < NofSourcePts; i++) {
+            this->CloudLoop(i);
+        }
+
+        for(int i=0; i < NofSourcePts; i++) {
+            int s = Survived[i];
+            Spa(AttribName,i, s);
+        }
+    }
+
+// end of struct KeepDistance
+}
+
+
+// -- works by using a point level radius 
+struct KeepRadius {
+
+    int Done[] ={};
+    int Survived[] ={};
+
+    int InputId = 0;
+    int NofSourcePts = 0;
+    
+    string AttribName = "";
+    string RadiusName = "";
+
+    float RadiusMax = 0;
+
+    float GetRadius(int ptNum) {
+        return point(InputId, RadiusName, ptNum);
+    }
+
+    void CalculateRadiusMax(){
+
+        float radMax = -1;
+        float curRad = 0;
+        for(int i=0; i < NofSourcePts; i++) {
+            curRad = this->GetRadius(i);
+            if (radMax < curRad) radMax = curRad;
+        }
+
+        if (radMax <= 0) {
+            printf("WTF? no meaningful radis on input:%d radius name:%s\n", InputId, RadiusName);
+        }
+
+        // worst case scenario 2x particles with radius=RadiusMax overlap
+        RadiusMax = radMax * 2;
+    }
+
+
+    void Init(int inputId; string attribName, radiusName) {
+        InputId = inputId;
+        NofSourcePts = npoints(inputId);
+        resize(Done, NofSourcePts);
+        resize(Survived, NofSourcePts);
+        AttribName = attribName;
+        RadiusName = radiusName;
+
+        this->CalculateRadiusMax();
+
+        //printf("input:%d nofPts:%d  radius name:[%s] searchRadius:%d\n", InputId, NofSourcePts, RadiusName, RadiusMax);
+    }
+
+
+    void CloudLoop(int sourceIdx) {
+
+        // early exit
+        if (Done[sourceIdx]) return;
+
+        // this survives 
+        Done[sourceIdx] =1; // set processed
+        Survived[sourceIdx] =1; // and survived
+
+        float sourceRad = this->GetRadius(sourceIdx);
+        float oRad, oDist;
+
+        int oPtnum, count, isDone;
+        oPtnum =-1;
+        vector sourcePos = point(InputId, "P", sourceIdx);
+        count=0;
+
+        int handle = pcopen(InputId,"P",sourcePos, RadiusMax, NofSourcePts+1);
+        while (pciterate(handle))
+        {  
+            pcimport(handle, "point.number", oPtnum);
+            pcimport(handle, "point.distance", oDist);
+            pcimport(handle, RadiusName, oRad);
+            if ( InputId == 0 && oPtnum == sourceIdx) continue;
+
+            if ( oDist < sourceRad + oRad) {
+                if (!Done[oPtnum]) {
+                    Done[oPtnum] = 1;
+                }
+            }
+        }
+        pcclose(handle);
+    }
+
+
+
+    void Run() {
+
+        for(int i=0; i < NofSourcePts; i++) {
+            this->CloudLoop(i);
+        }
+
+        for(int i=0; i < NofSourcePts; i++) {
+            int s = Survived[i];
+            Spa(AttribName,i, s);
+        }
+    }
+
+
+// end of struct KeepRadius
+}

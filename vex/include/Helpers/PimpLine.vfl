@@ -1,0 +1,141 @@
+#include "Helpers/pointAttribHelper.h"
+#include "Helpers/primAttribHelper.h"
+
+
+// OBSOLETE - use PolyLinePimp instead!
+
+
+
+// note: this function uses input 1 (the second one) also as reference lines
+// by default the geo itself is wired into input 1 but also possible to switch to something custom
+void PimpLine(int primNum; float seed, randExp, randMin, randMax, noizScale, noizOffset, noizExp, noizMin, noizMax, fRampMult; 
+int addPlid, addNrmid, addSegLen, addCurrLen, addTangent, addRand, addUv, reverseOrder, addPrid, addNoiz, addRootPos, noizAroundZero, addSelfLength, addRefLength, addFloatRamp; 
+string rndName, noizName, fRampName, pridName, plidName, nrmidName ){
+    int idNext, idCurr, idxNext, isLast, isFirst;
+    vector toNext, posCurr, posNext, uv, rS, startPos;
+     
+    float toNextLen, r, rf, mPerimeter, uC, nrmId, nz, nMult, rawNoiz, sclRamp;
+    float lenAccu = 0.0;
+
+    // points of the current primitive
+    int pointIds[] = primpoints(geoself(), primNum);
+    int origIds[] = {};
+    push(origIds, pointIds);
+    float clens[] = {};
+
+    int nofPt = len(pointIds);
+    if (nofPt <= 1) return;
+    resize(clens,nofPt);
+
+    // the flipping
+    if (reverseOrder) {
+        pointIds = reverse(pointIds);
+    }
+       
+    if (addRootPos) {
+        startPos = point(geoself(),"P", pointIds[0]);
+        SetAndCreatePrimAttribute("rootpos", primNum, startPos);
+    }
+
+    // input 1 is either itself or a reference line
+    mPerimeter = primintrinsic(1, "measuredperimeter", primNum);
+    //printf("p:%d mPeri:%d\n", primNum, mPerimeter);
+
+    if (addRefLength) {
+        SetAndCreatePrimAttribute("reflength", primNum, mPerimeter);
+        //printf("reflen:%d\n", mPerimeter);
+    }
+
+    int lastIndex = nofPt-1;
+    
+    for(int i=0; i < nofPt; i++) {
+
+        isFirst = (i == 0);
+        isLast = (i == lastIndex);
+        idxNext = (isLast) ? i-1 : i+1;
+
+        idCurr = pointIds[i];
+        idNext = pointIds[idxNext];
+
+        posCurr = point(geoself(),"P", idCurr);
+        posNext = point(geoself(),"P", idNext);
+        toNext = posNext - posCurr;
+        toNextLen = length(toNext);
+        nrmId = float(i) / float(nofPt-1);
+        rf = (0.39998771 +(seed*0.94) + float(i+2)*0.1733377 + float(primNum)*0.791143)*0.9977;
+        rS = set(rf, rf/3.333, -1*i*rf);
+        r = fit01(pow(rand( (posCurr - posNext) + rS), randExp), randMin, randMax);
+
+
+        if (isLast) toNext *= -1;
+
+        if (addPlid) { // per line id
+            Spa(plidName, idCurr, i);
+        }
+
+        if (addNrmid) { // 0..1 along line
+            Spa(nrmidName, idCurr, nrmId);
+        }
+
+        if (addTangent) {
+            Spa("tangent", idCurr, normalize(toNext));
+        }
+
+        if (addSegLen) {
+            Spa("sgmlen", idCurr, toNextLen );
+        }
+
+        if (addCurrLen) {
+            Spa("clen", idCurr, lenAccu);
+        }
+
+        clens[i] = lenAccu;
+        if (!isLast) lenAccu += toNextLen;
+
+        if (addRand) {
+            Spa(rndName, idCurr, r);
+        }
+
+        if (addFloatRamp) {
+            sclRamp = chramp("framp", nrmId);
+            Spa(fRampName, idCurr, sclRamp * fRampMult);
+        }
+
+
+        if (addNoiz) {
+            rawNoiz = flownoise(posCurr *noizScale, noizOffset);
+            nMult = chramp("noizramp", nrmId);
+
+            if (noizAroundZero) {
+                // -0.5 .. +0.5    move center of the noise to zero
+                nz = nMult * noizMax * ( pow(rawNoiz, noizExp) - 0.5);
+            } else {
+                nz = nMult * fit01( pow(rawNoiz, noizExp),  noizMin, noizMax);
+            }
+            
+            Spa(noizName,origIds[i],nz);
+        }
+    }
+
+    if (addSelfLength) {
+        SetAndCreatePrimAttribute("selflength", primNum, lenAccu);
+        //printf("selflength%d\n", lenAccu);
+    }
+   
+
+    // measured perimeter was inaccurate
+    if (addUv) {
+        //printf("\n%d\n", clens);
+        for(int i=0; i<nofPt; i++) {
+            uC = clens[i] / lenAccu;
+
+            //printf("%d %d %d\n", clens[i], lenAccu, uC);
+            Spa("uv", pointIds[i], set(uC, 0.5 ,0));
+        }
+    }
+
+    if (addPrid) {
+        SetAndCreatePrimAttribute(pridName, primNum, primNum +1);
+    }
+    //printf("mPeri:%d lenAccu:%d\n", mPerimeter, lenAccu);
+}

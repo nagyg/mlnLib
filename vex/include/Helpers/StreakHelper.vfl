@@ -1,0 +1,176 @@
+#include "Helpers/pointAttribHelper.h"
+#include "Helpers/primAttribHelper.h"
+#include "Helpers/pointArrayAttribHelper.h"
+
+void InitStreak(int ptnum)
+{
+    CreateVectorArrayAttrib("pbuf");
+    Spa("r_age", ptnum, 0.);
+}
+
+void StoreSimStateWholeFrames(int ptnum; vector p; float frame, nage; int buf_size, verbose)
+{
+
+    Spa("r_age", ptnum, nage);
+
+    if (frac(frame) > 0.0)
+        return;
+
+    StoreBufferedVectorValue("pbuf", ptnum, p, buf_size);
+}
+
+void StoreSimStateByTimeDiff(int ptnum; vector p; float time, last_save, t_diff, nage; int buf_size, verbose)
+{
+
+    Spa("r_age", ptnum, nage);
+
+    float dif = time - last_save;
+
+    if (dif < t_diff)
+    {
+        if (verbose && ptnum == 0)
+        {
+            printf(".", time, dif);
+        }
+
+        return;
+    }
+
+    if (verbose && ptnum == 0)
+    {
+        printf("\n%d\tdif:%d\n", time, dif);
+    }
+
+    Spa("st_last", ptnum, time);
+    StoreBufferedVectorValue("pbuf", ptnum, p, buf_size);
+}
+
+void CreateStreak(int ptnum, id; float r_age, pscale; vector current_pos, v, pcolor; int i_step, i_max, add_current)
+{
+
+    vector buf[] = {};
+    buf = GetVectorArrayAttrib("pbuf", ptnum);
+    int pblen = len(buf);
+
+    //  if (ptnum==0){
+    //      printf("pbuf:%d i_step:%d i_max:%d\n", pblen, i_step, i_max);
+    //  }
+
+    if (pblen <= 0)
+        return;
+
+    float particle_psc_fin = chf("pscale_final_mult");
+
+    vector cp = {0, 0, 0};
+    int pid = 0;
+    vector posarr[] = {};
+
+    if (i_step <= 0)
+    {
+        i_step = 1;
+    }
+
+    if (i_max <= 0)
+    {
+        i_max = pblen;
+    }
+
+    if (i_max > pblen)
+    {
+        i_max = pblen;
+    }
+
+    if (pblen <= 2)
+    {
+        i_step = 1;
+    }
+
+    if (pblen == 3 && i_step != 1)
+    {
+        i_step = 2;
+    }
+
+    if (add_current)
+    {
+        push(posarr, current_pos);
+    }
+
+    int pCnt = 0;
+    int pidx = 0;
+    while (pidx < pblen)
+    {
+        cp = buf[pidx];
+        push(posarr, cp);
+        pidx += i_step;
+        pCnt++;
+        if(pCnt >= i_max) break;
+    }
+
+    int nofPos = len(posarr);
+    //printf("pos left:%d\n", nofPos);
+
+    vector cV;
+    vector velos[];
+    resize(velos, nofPos);
+    for (int i=0;i<nofPos;i++){
+
+        if (i == 0) {
+            velos[i] =v; // original from point
+        }
+
+        if (i == (nofPos -1)) {
+            cV = posarr[i] - posarr[i-1]; 
+            cV *= -1;
+        } else {
+            cV = posarr[i] - posarr[i+1]; 
+        }
+        
+        velos[i] = cV;
+    }
+
+
+
+    float mult = 1.0;
+    vector pp, colmult, uvv;
+
+    int prid = 0;
+    float opak, life_opc, nrmidx, pscmult, alpha, psc_fin;
+    int cpid;
+
+    int vtcs[];
+    resize(vtcs, nofPos);
+
+    for (int i = 0; i < nofPos; i++)
+    {
+        pp = posarr[i];
+        pid = addpoint(geoself(), pp);
+        vtcs[i] = pid;
+    }
+
+    int nofv = len(vtcs);
+    life_opc = chramp("life_opac_ramp", r_age);
+
+    for (int j = 0; j < nofv; j++)
+    {
+
+        nrmidx = (float)j / (nofv - 1.);
+        cpid = vtcs[j];
+
+        colmult = chramp("color_ramp", nrmidx);
+        opak = chramp("opacity_ramp", nrmidx);
+        pscmult = chramp("pscale_ramp", nrmidx);
+        psc_fin = particle_psc_fin;
+        uvv = set(nrmidx, 0.5, 0);
+
+        Spa("Cd", cpid, pcolor * colmult * opak * life_opc);
+        Spa("pscale", cpid, pscale * pscmult * psc_fin);
+        Spa("Alpha", cpid, opak * life_opc);
+        Spa("v", cpid, velos[j]);
+        Spa("uv", cpid, uvv);
+        Spa("nidx", cpid, nrmidx);
+        Spa("id", cpid, id);
+    }
+
+    prid = addprim(geoself(), "polyline", vtcs);
+    removepoint(geoself(), ptnum, 1);
+}

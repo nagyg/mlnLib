@@ -1,0 +1,67 @@
+cvex CVexPointWithCloud
+(
+    int ptnum = 0;
+    int id = -1;
+    int numpt = 0;
+    
+    float Time = 0;
+    float TimeInc = 0;
+    float Frame = 0;
+    float age = 0;
+    float life = 0;
+    
+    vector v = {0,0,0};
+    vector force = {0,0,0};
+    vector uv = {0,0,0};
+    vector N = {0,0,0};
+    
+    string OpInput1 = "";
+    string OpInput2 = "";
+    string OpInput3 = "";
+    string OpInput4 = "";
+    
+    export vector P = { 0, 0, 0 };
+    export vector Cd = { 1, 1, 1 };
+)
+{
+    int oPtnum, ptCount;
+    float oDistance, oPscale;
+    vector oP;
+    
+    vector bbMin, bbMax;
+    getbbox(geoself(), bbMin, bbMax);
+    float pcRadius = 2 * length(bbMin - bbMax);
+       
+    
+    //open all
+    int hnd = pcopen(geoself(), "P", P, pcRadius, numpt+1);
+
+    //as generic as possible
+    
+    ptCount = 0;
+    while (pciterate(hnd))
+    {
+        pcimport(hnd, "point.number", oPtnum);
+        pcimport(hnd, "point.distance", oDistance);    
+        pcimport(hnd, "P", oP);
+        pcimport(hnd, "pscale", oPscale);
+        
+        // *** your code comes here ***
+        printf("current point:%d enemy point:%d\n", ptnum, oPtnum);
+        
+        ptCount ++;
+    }
+    pcclose(hnd);
+    
+    // *** your finalize code comes here ***
+    
+    // example code
+    float divider = 1;
+    if (numpt > 0) divider = float(numpt);
+    float iterW = ptnum / divider;
+    Cd = set(iterW, iterW * 0.7, 0.4);
+    
+    // ***
+}    
+    
+ 
