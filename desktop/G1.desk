@@ -9,12 +9,11 @@ root {
     split 0.502734 H {
         split 0.48925 V {
             tabs 0 1 {
-                pane panetab101 -a 0 -l 10 -H /obj/ -T OBJ -m sceneview
+                pane panetab101 -a 0 -l 10 -H /ch/ -T CHOPNET -m sceneview
             }
             tabs 0 1 {
                 pane panetab51 -a 0 -l 1 -H /obj/ -T OBJ -m neteditor
-                pane panetab8 -a 0 -l 10 -H /obj/ -T OBJ -m iprviewer
-                pane panetab89 -a 0 -l 10 -H /obj/ -T OBJ -m chaneditor
+                pane panetab89 -a 0 -l 10 -H /ch/ -T CHOPNET -m chaneditor
                 pane panetab68 -a 0 -l 10 -H /ch/ -T CHOPNET -m channelview
                 pane panetab1 -a 0 -l 0 -H /obj/ -T OBJ -m details
                 pane panetab102 -a 0 -l 0 -H /obj/ -T OBJ -m datatree
@@ -26,6 +25,7 @@ root {
                 pane panetab11 -a 0 -l 0 -H /obj/ -T OBJ -m takelist
                 pane panetab12 -a 0 -l 0 -H /obj/ -T OBJ -m bundlelist
                 pane panetab13 -a 0 -l 0 -H /obj/ -T OBJ -m linker
+                pane panetab3 -a 0 -l 10 -H /ch/ -T CHOPNET -m iprviewer
             }
             tabs 0 1 {
                 pane panetab2 -a 0 -l 2 -H /obj/ -T OBJ -m neteditor
@@ -60,8 +60,7 @@ netcolumns -c delscript,comment -n TOPNET panetab51
 netcolumns -c display,bypass,delscript,comment,input -n LOP panetab51
 netcolumns -c delscript,comment -n MGR panetab51
 netcolumns -c delscript,comment -n DIR panetab51
-iprview -t 0.1 -l 0 -e 1 -u 1  panetab8
-chopview -a 0 -c "" -k 1 -m 1 -b 1 -e 1 -f 0 -g 0 -H 0 -i 0 -j 1 -l 0 -n 1 -V 0 -y 0 -B 0 -s 0 -S 59.2512 -u 0 -v 0 -h 0.396648 2.02705 -r -1.5 1.5 -R 0 -11.9446 34.304 panetab68
+chopview -a 0 -c "" -k 1 -m 1 -b 1 -e 1 -f 0 -g 0 -H 0 -i 0 -j 1 -l 0 -n 1 -V 0 -y 0 -B 0 -s 0 -S 0.370063 -u 0 -v 0 -h 0.396648 2.02705 -r -1.5 1.5 -R 0 -11.9446 34.304 panetab68
 datatree panetab102
 parmeditor -T 0.25 -w 0 panetab5
 takelist -w 1 -G 0.5 panetab11
@@ -84,3 +83,4 @@ netcolumns -c delscript,comment -n TOPNET panetab2
 netcolumns -c display,bypass,delscript,comment,input -n LOP panetab2
 netcolumns -c delscript,comment -n MGR panetab2
 netcolumns -c delscript,comment -n DIR panetab2
+iprview -t 0.1 -l 0 -e 1 -u 1  panetab3
