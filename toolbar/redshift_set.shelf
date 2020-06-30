@@ -1,0 +1,131 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<shelfDocument>
+  <!-- This file contains definitions of shelves, toolbars, and tools.
+ It should not be hand-edited when it is being used by the application.
+ Note, that two definitions of the same element are not allowed in
+ a single file. -->
+
+  <shelfSet name="redshift_set" label="Redshift HSITE">
+    <memberToolshelf name="Redshift"/>
+  </shelfSet>
+
+  <toolshelf name="Redshift" label="Redshift">
+    <memberTool name="Redshift"/>
+    <memberTool name="Options_Panel0"/>
+    <memberTool name="OpenIPR"/>
+    <memberTool name="OpenRenderView"/>
+    <memberTool name="DisableIPR"/>
+    <memberTool name="SnapshotIPR"/>
+    <memberTool name="Add Camera Spare Parameters"/>
+    <memberTool name="Add Object Spare Parameters"/>
+    <memberTool name="proxy"/>
+    <memberTool name="RSLight"/>
+    <memberTool name="RSLightDome"/>
+    <memberTool name="RSLightIES"/>
+    <memberTool name="RSLightSun"/>
+    <memberTool name="RSLightPortal"/>
+    <memberTool name="About"/>
+  </toolshelf>
+
+  <tool name="RSLightPortal" label="RSLightPortal" icon="RS_lightPortal_icon">
+    <script scriptType="python"><![CDATA[import hou
+shop = hou.node("/obj")
+newnode = shop.createNode("rslightportal")
+newnode.moveToGoodPosition()]]></script>
+  </tool>
+
+  <tool name="RSLightSun" label="RSLightSun" icon="RS_lightSun_icon">
+    <script scriptType="python"><![CDATA[import objecttoolutils
+
+kwargs['bbox_min'] = hou.Vector3(-1.5, -1.5, -1.5)
+kwargs['bbox_max'] = hou.Vector3(1.5, 1.5, 1.5)
+newnode = objecttoolutils.genericCameraLightTool(kwargs, 'rslightsun')]]></script>
+  </tool>
+
+  <tool name="RSLightIES" label="RSLightIES" icon="RS_lightIES_icon">
+    <script scriptType="python"><![CDATA[import objecttoolutils
+
+kwargs['bbox_min'] = hou.Vector3(-1.5, -1.5, -1.5)
+kwargs['bbox_max'] = hou.Vector3(1.5, 1.5, 1.5)
+newnode = objecttoolutils.genericCameraLightTool(kwargs, 'rslighties')]]></script>
+  </tool>
+
+  <tool name="RSLightDome" label="RSLightDome" icon="RS_lightDome_icon">
+    <script scriptType="python"><![CDATA[import hou
+shop = hou.node("/obj")
+newnode = shop.createNode("rslightdome")
+newnode.setCurrent(True, True)
+newnode.moveToGoodPosition()]]></script>
+  </tool>
+
+  <tool name="RSLight" label="RSLight" icon="RS_light_icon">
+    <script scriptType="python"><![CDATA[import objecttoolutils
+
+kwargs['bbox_min'] = hou.Vector3(-1.5, -1.5, -1.5)
+kwargs['bbox_max'] = hou.Vector3(1.5, 1.5, 1.5)
+newnode = objecttoolutils.genericCameraLightTool(kwargs, 'rslight')]]></script>
+  </tool>
+
+  <tool name="SnapshotIPR" label="Snapshot" icon="RS_snapshotIPR_icon">
+    <script scriptType="hscript"><![CDATA[Redshift_snapshotIPR
+]]></script>
+  </tool>
+
+  <tool name="DisableIPR" label="On/Off" icon="RS_disableIPR_icon">
+    <script scriptType="hscript"><![CDATA[Redshift_IPRUpdateState
+]]></script>
+  </tool>
+
+  <tool name="OpenRenderView" label="RenderView" icon="RS_openIPR_icon">
+    <script scriptType="hscript"><![CDATA[Redshift_openRenderViewIPR
+]]></script>
+  </tool>
+
+  <tool name="OpenIPR" label="IPR" icon="RS_openIPR_icon">
+    <script scriptType="hscript"><![CDATA[Redshift_openIPR
+]]></script>
+  </tool>
+
+  <tool name="proxy" label="Proxy" icon="RS_proxy_icon">
+    <helpText><![CDATA[Add a Redshift proxy OBJ node with the RS spare parameters and the RS SOP preview node
+]]></helpText>
+    <script scriptType="hscript"><![CDATA[Redshift_addProxy
+]]></script>
+  </tool>
+
+  <tool name="Add Object Spare Parameters" label="ObjParms" icon="RS_objectSpareParameters_icon">
+    <helpText><![CDATA[Add the Redshift object spare parameters to any OBJ node
+]]></helpText>
+    <script scriptType="hscript"><![CDATA[Redshift_objectSpareParameters
+]]></script>
+  </tool>
+
+  <tool name="Add Camera Spare Parameters" label="CamParms" icon="RS_cameraSpareParameters_icon">
+    <helpText><![CDATA[Add the Redshift camera spare parameters to the camera OBJ nodes
+]]></helpText>
+    <script scriptType="hscript"><![CDATA[Redshift_cameraSpareParameters
+]]></script>
+  </tool>
+
+  <tool name="Options_Panel0" label="Options" icon="RS_optionsPanel_icon">
+    <helpText><![CDATA[Redshift user options panel
+]]></helpText>
+    <script scriptType="hscript"><![CDATA[Redshift_optionsPanel
+]]></script>
+  </tool>
+
+  <tool name="About" label="About" icon="RS_about_icon">
+    <helpText><![CDATA[Redshift about box]]></helpText>
+    <script scriptType="hscript"><![CDATA[Redshift_about]]></script>
+  </tool>
+
+  <tool name="Redshift" label="Redshift" icon="ROP_Redshift_ROP">
+    <helpText><![CDATA[Create a Redshift ROP node]]></helpText>
+    <toolMenuContext name="network">
+      <contextNetType>ROP</contextNetType>
+    </toolMenuContext>
+    <toolSubmenu>Render</toolSubmenu>
+    <script scriptType="python"><![CDATA[__import__('roptoolutils').createRenderNode('Redshift_ROP')
+__import__('roptoolutils').createRenderNode('Redshift_IPR')]]></script>
+  </tool>
+</shelfDocument>
