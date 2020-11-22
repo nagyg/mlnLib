@@ -36,12 +36,15 @@ struct LavaSolver
     float Speed_scale;
     float Displacement_threshold;
     float Curl_turbulence_speed;
+    float Age_size_fade_in;
+    float Cooling_by_stopped;
     int Position_buffer_size;
+    int Diff_buffer_size;
 
     float Current_frame;
 
     void Init(float time_scale, displacement_threshold, speed_scale, psize_mult, curl_power, curl_size, curl_dotlow, curl_dothigh, curl_turbulence_speed, max_ncount, velocity_blend, dynfrict_scale, max_realdist, cool_geo, cool_time,
-              heat_xfer_rate, nforce_scale, max_friction, rawlone_min)
+              heat_xfer_rate, nforce_scale, max_friction, rawlone_min, age_size_fade_in, cooling_by_stopped; int diff_buffer_size)
     {
         Time_scale = time_scale;
         Max_ncount = max_ncount;
@@ -62,6 +65,10 @@ struct LavaSolver
         Speed_scale = speed_scale;
         Displacement_threshold = displacement_threshold;
         Curl_turbulence_speed = curl_turbulence_speed;
+        Diff_buffer_size = diff_buffer_size;
+        Age_size_fade_in = age_size_fade_in;
+        Cooling_by_stopped = cooling_by_stopped;
+
         //-- runtime stuff
         Cool_geo *= Time_scale;
         Cool_time *= Time_scale;
@@ -87,9 +94,15 @@ struct LavaSolver
         return res;
     }
 
+    // cooling with collieded with geo
     float CoolingByGeometry(float heat)
     {
-        return clamp((heat - Cool_geo), 0., Hmax);
+        return clamp( heat - Cool_geo, 0., Hmax);
+    }
+    
+    // extra cooling with a neighbour is stopped
+    float CoolingByNeighbour(float heat){
+        return clamp( heat - ( Cool_geo  * Cooling_by_stopped ) , 0., Hmax);
     }
 
     float HandleCooling(int ptnum, geo_colliding; float heat, lone)
@@ -150,7 +163,14 @@ struct LavaSolver
             Spa("pscale",ptnum,  psc_orig*psizelookup);
             */
 
-        Spa("pscale", ptnum, point(geoself(), "pscorig", ptnum) * (1. + (chramp("psizeramp", heat) * Psize_mult)));
+        float agef = clamp(point(geoself(),"age",ptnum) / Age_size_fade_in, 0.,1.);
+
+        if (agef >= 1.0){
+            // done fadeing in
+            Spa("intro", ptnum, 0);
+        }
+
+        Spa("pscale", ptnum, point(geoself(), "pscorig", ptnum) * (1. + (chramp("psizeramp", heat) * Psize_mult)) * agef   );
     }
 
     void WriteHeat(int ptnum; float heat, heat_prev; int found_stopped_neighbour, colorize_heat)
@@ -159,7 +179,7 @@ struct LavaSolver
         // cold neighbor acts like a geo -> extra cooling
         if (found_stopped_neighbour > 0)
         {
-            heat = this->CoolingByGeometry(heat);
+            heat = this->CoolingByNeighbour(heat);
         }
 
         // deal with heat
@@ -212,9 +232,9 @@ struct LavaSolver
         return result * Time_scale;
     }
 
-    vector CalculateVelocityBlending(int ptnum; float heat; vector velocity_accu; float distance_factor; int write_veloacc)
+    vector CalculateVelocityBlending(int ptnum; float heat; vector velocity_accu;  int write_veloacc)
     {
-        velocity_accu *= Velocity_blend * chramp("veloaccuramp", heat) * distance_factor;
+        velocity_accu *= Velocity_blend * chramp("veloaccuramp", heat);
         if (write_veloacc)
         {
             Spa("vaccu", ptnum, velocity_accu);
@@ -252,7 +272,7 @@ struct LavaSolver
         return lone;
     }
 
-    void HandleDisplacementAvg(int ptnum; vector pos; float pscale; int max_samples)
+    void HandleDisplacementAvg(int ptnum; vector pos; float pscale)
     {
 
         vector pos_prev = point(geoself(), "pprevious", ptnum);
@@ -263,7 +283,7 @@ struct LavaSolver
             return;
 
         //vector freshAvg = {0,0,0};
-        vector freshAvg = AddBufferedVectorValue("vbuf", ptnum, diff, max_samples);
+        vector freshAvg = AddBufferedVectorValue("vbuf", ptnum, diff, Diff_buffer_size);
         Spa("vavg", ptnum, freshAvg);
     }
 
@@ -306,7 +326,7 @@ struct LavaSolver
     void DoTheLava(float frame; int ptnum; vector pos; int colorize_heat, write_speed, write_veloacc, write_curl, write_nforce, write_lone, colorize_lone)
     {
         Current_frame = frame;
-        int max_samples = 25;
+        
         int neighbours_count = 0;
         int gazdagret[];
         gazdagret = point(geoself(), "neighbors", ptnum);
@@ -333,7 +353,7 @@ struct LavaSolver
             normalized_velocity = normalize(velocity);
         }
 
-        this->HandleDisplacementAvg(ptnum, pos, pscale, max_samples);
+        this->HandleDisplacementAvg(ptnum, pos, pscale);
 
         heat = this->HandleCooling(ptnum, geo_colliding, heat, lone);
 
@@ -397,7 +417,7 @@ struct LavaSolver
 
             force_accu += this->CalculateNeighbouringForce(ptnum, neighbours_count, avgP, heat, write_nforce);
 
-            force_accu += this->CalculateVelocityBlending(ptnum, heat, veloAccu, distance_factor, write_veloacc);
+            force_accu += this->CalculateVelocityBlending(ptnum, heat, veloAccu, write_veloacc);
 
             this->HandleFriction(ptnum, heat);
 
@@ -411,10 +431,22 @@ struct LavaSolver
 
 } // end of LavaSolver
 
+
+
+void MakeOrient(int ptnum; vector v_normal, v_direction){
+        
+    // create and set orient
+    matrix3 m = maketransform( v_direction, v_normal );
+    vector4 q = quaternion(m);
+    Spa("tmporient", ptnum, q);
+}
+
+
+
 // removes sourced points that are overlapping with existing sim particles
 // uses per point pscale attrib and packs rather tight
 void
-CleanSource(int ptnum; vector pos; float radius; float safety)
+CleanSource(int ptnum; vector pos; float radius; float safety; int steprole; int maxPts)
 {
     // deal only with the fresh ones
     if (point(geoself(), "simrole", ptnum) > 0)
@@ -422,14 +454,16 @@ CleanSource(int ptnum; vector pos; float radius; float safety)
         return;
     }
 
-    int maxPts = 2;
+     
     float oDistance, oPscale, pscale;
     int oPtnum, oInSim;
     int survived = 1;
 
+    // with the current implementation pscale is not scaled at this point 
+    // so it can be safely used 
     pscale = point(geoself(), "pscale", ptnum);
 
-    int handle = pcopen(geoself(), "P", pos, radius * 1.05, maxPts);
+    int handle = pcopen(geoself(), "P", pos, radius * 5.0, maxPts);
     while (pciterate(handle))
     {
         // the current point vs itself
@@ -461,7 +495,12 @@ CleanSource(int ptnum; vector pos; float radius; float safety)
     }
     else
     {
-        Spa("simrole", ptnum, 1); // survived. and now it's in the sim
+        if (steprole){
+            // next role - comfy filter for new ones. This one seals it.
+            Spa("simrole", ptnum, 1); 
+        }
+
+        // survived. and now it's in the sim
     }
 }
 
@@ -637,14 +676,14 @@ void MeasureVdbSdfRange()
     float smax = -100000;
     vector p = {0, 0, 0};
     float sfl = 0;
-    vector svec = {0, 0, 0};
+    //vector svec = {0, 0, 0};
 
     int nofp = npoints(geoself());
     for (int i = 0; i < nofp; i++)
     {
         p = point(geoself(), "P", i);
         sfl = volumesample(1, "surface", p);
-        svec = volumegradient(1, "surface", p);
+        //svec = volumegradient(1, "surface", p);
 
         if (sfl < smin)
         {
@@ -728,12 +767,12 @@ void AddPointByVels(int ptnum; vector pos; float sample_time, path_scale)
     addpoint(geoself(), GetPointByVels(ptnum, pos, sample_time, path_scale));
 }
 
-int GetSdfValue(vector pos; float sdf_min, sdf_max, threshold_low, threshold_high, sdf_sample)
+int GetSdfValue(vector pos; float sdf_min, sdf_max, sdf_sample)
 {
 
     sdf_sample = volumesample(1, "surface", pos);
 
-    if (sdf_sample < threshold_low || sdf_sample > threshold_high || sdf_sample < sdf_min || sdf_sample > sdf_max)
+    if (sdf_sample < sdf_min || sdf_sample > sdf_max )
     {
         return 0; // invalid
     }
@@ -743,7 +782,7 @@ int GetSdfValue(vector pos; float sdf_min, sdf_max, threshold_low, threshold_hig
 
 int GetSdfGradient(vector pos, volume_gradient)
 {
-    volume_gradient = volumegradient(1, "surface", pos);
+    volume_gradient = normalize(volumegradient(1, "surface", pos));
     if (volume_gradient == {0, 0, 0})
     {
         return 0;
@@ -751,11 +790,11 @@ int GetSdfGradient(vector pos, volume_gradient)
     return 1;
 }
 
-int SampleLavaSdf(vector pos; float sdf_min, sdf_max, threshold_low, threshold_high, sdf_sample; vector volume_gradient)
+int SampleLavaSdf(vector pos; float sdf_min, sdf_max,  sdf_sample; vector volume_gradient)
 {
 
     // try to sample the sdf
-    if (!GetSdfValue(pos, sdf_min, sdf_max, threshold_low, threshold_high, sdf_sample))
+    if (!GetSdfValue(pos, sdf_min, sdf_max, sdf_sample))
     {
         return 0;
     }
@@ -764,7 +803,7 @@ int SampleLavaSdf(vector pos; float sdf_min, sdf_max, threshold_low, threshold_h
     return GetSdfGradient(pos, volume_gradient);
 }
 
-vector GetColorForLappingSources(int inside; float contrib)
+vector GetColorForLappingSources(int inside; float level)
 {
     vector col = {0.5, 0.5, 0.5};
 
@@ -781,13 +820,235 @@ vector GetColorForLappingSources(int inside; float contrib)
         col.y = 0;
     }
 
-    col *= contrib;
-    col.z = contrib;
+    col *= level;
+    col.z = level;
 
     return col;
 }
 
-void CalculateLappingSpace(int ptnum; vector volume_gradient, v_normal, v_direction)
+void ColorBySpatSet(int ptnum, spatset){
+    vector col = {1,1,0};
+
+    //printf("spatset: %d\n",spatset);
+    if (spatset == 1) {
+            // out
+        col = { 1, 0.0, 0};
+    }
+
+    if (spatset == 2) {
+        // deep
+        col = { 1, 0.2, 0.3 };
+    }
+
+    if (spatset == 3) {
+        // inside
+        col = { 0., 1., 0. };
+    }
+
+    if (spatset == 5) {
+        // too inside
+        col = { 1., 1., 0.  };
+    }
+
+
+    if (spatset == 4) {
+        // outside
+        col = { 1., 1., 0.3 };
+    }
+
+    if (spatset == 6) {
+            // out
+        col = { 1, 0., 0.};
+    }
+
+
+    Spa("Cd",ptnum, col);
+
+}
+
+// 1 out
+// 6 too outside
+// 4 outside OK
+// 3 inside OK
+// 5 too inside
+// 2 deep
+void CollectSdfInfo(int ptnum; vector pos; float bgval, sdf_min, sdf_max; int colorize_sources, keep_inside_only) {
+    
+
+    //printf("bg:%f   min:%f   max:%f\n", bgval, sdf_min, sdf_max);
+
+    int spatset = 0;
+    float sdf_sample = volumesample(1, "surface", pos);
+    Spa("sdfval",ptnum, sdf_sample);
+
+    // these are the points where the sdf value will surely fail 
+    if (sdf_sample >= bgval || sdf_sample <= -1* bgval) {
+
+        if (sdf_sample <= 0.0) {
+            spatset=2;
+            Spa("spatset", ptnum, spatset); // - deep indise sdf
+        } else {
+            spatset=1;
+            Spa("spatset", ptnum, spatset); // - outside of sdf
+        }
+         
+    } else {
+
+        float spatw = 0;
+        float spatw_max = sdf_max;
+
+
+        // Ok, we are inside the magic half-band voxels
+        if (sdf_sample <= 0 && sdf_sample >= sdf_min) {
+            spatset=3;
+            spatw_max = sdf_min;
+            Spa("spatset", ptnum, spatset); // - inside ok
+        } 
+
+        if (sdf_sample < sdf_min) {
+            spatset=5;
+            spatw_max = sdf_min;
+            Spa("spatset", ptnum, spatset); // - too inside
+        } 
+
+
+        if (sdf_sample > 0 && sdf_sample <= sdf_max)  {
+            spatset=4;
+            Spa("spatset", ptnum, spatset); // - outside ok
+        }
+
+        if (sdf_sample > sdf_max) {
+            spatset=6;
+            Spa("spatset", ptnum, spatset); // - too outside
+        }
+
+        spatw = 1.0 - clamp( abs(sdf_sample) / abs(spatw_max) ,0.,1.);
+        Spa("spatw",ptnum, spatw);
+
+    }
+
+    if (colorize_sources) {
+        ColorBySpatSet(ptnum, spatset);
+    }
+   
+    if (spatset == 2 || spatset == 1 || spatset == 5 || spatset == 6) {
+     
+        if (keep_inside_only)
+        {
+            removepoint(geoself(), ptnum, 1);
+        }
+        return;
+    }
+
+    
+
+
+    vector v_volgradient = normalize(volumegradient(1, "surface", pos));
+    Spa("volgrad", ptnum, v_volgradient);
+
+    vector vAvg = normalize(point(geoself(), "vavg", ptnum));
+    vector k = cross(vAvg, v_volgradient);
+    vector kk = -1 * cross(k, v_volgradient);
+    vector v_normal = v_volgradient;
+    vector v_direction = kk;
+
+    Spa("v_n", ptnum, v_normal);
+    Spa("v_d", ptnum, v_direction);
+
+   MakeOrient(ptnum, v_normal, v_direction);
+    
+    float lapping_level = fit(sdf_sample, sdf_min, sdf_max, 0., 1.);
+    Spa("lv_level", ptnum, lapping_level);
+
+    lapping_level = fit(sdf_sample, sdf_min, 0.0, 0., 1.);
+    Spa("lv_inside", ptnum, lapping_level);
+
+    lapping_level = fit(sdf_sample, 0.0, sdf_max, 0., 1.);
+    Spa("lv_outside", ptnum, lapping_level);
+
+}
+
+
+// volgrad is normalized -> raylen is absolute
+void MoveToSurface(int ptnum; vector pos, volgrad; float effect_scale,  raylen){
+
+    
+    int firsthit, sechit;
+    firsthit=0;
+    sechit=0;
+    float firstd, secd;
+    firstd=0;
+    secd=0;
+
+    int wasint = 0;
+    vector iP = {0, 0, 0};
+    vector iuv = {0, 0, 0};
+    int iprim = intersect(1, pos, volgrad * raylen, iP, iuv);
+    if (iprim > 0) {
+        wasint=1;
+        firsthit =1;
+        firstd = distance(pos, iP);
+    }
+
+    vector iP2 = {0, 0, 0};
+    vector iuv2 = {0, 0, 0};
+    int iprim2 = intersect(1, pos, -1* volgrad * raylen, iP2, iuv2);
+    if (iprim2 > 0){
+        wasint=1;
+        sechit=1;
+        secd = distance(pos, iP2);
+    }
+     
+    int hitprim = -1;
+    vector hitpos = {0,0,0};
+    vector hituv = {0,0,0};
+    if (firsthit && sechit) {
+
+        if (firstd < secd){
+            hitprim = iprim;
+            hitpos = iP;
+            hituv = iuv;
+        } else {
+            hitprim = iprim2;
+            hitpos = iP2;
+            hituv = iuv2;
+        }
+    } else {
+
+        if (firsthit) {
+            hitprim = iprim;
+            hitpos = iP;
+            hituv = iuv;
+        }
+
+        if (sechit){
+            hitprim = iprim2;
+            hitpos = iP2;
+            hituv = iuv2;
+        }
+
+    }
+
+
+
+    if (wasint == 0) {
+        warning("wtf at intersec pt:%d ", ptnum);
+        Spa("spatset",ptnum, 7);
+        return;
+    }
+
+    vector sno = normalize(primuv(1,"N",hitprim, hituv));
+    Spa("ipos",ptnum, hitpos);
+    Spa("inrm",ptnum, sno);
+    
+    vector newpos = lerp(pos,hitpos, effect_scale);
+    Spa("P",ptnum, newpos);
+}
+
+
+
+
+void CalculateLappingSpace__OLD_(int ptnum; vector volume_gradient, v_normal, v_direction)
 {
 
     vector vAvg = point(geoself(), "vavg", ptnum);
@@ -800,65 +1061,202 @@ void CalculateLappingSpace(int ptnum; vector volume_gradient, v_normal, v_direct
     v_direction = kk;
     // Roll: k
 
-    Spa("k", ptnum, k);
-    Spa("kk", ptnum, kk);
+    //Spa("k", ptnum, k);
+    //Spa("kk", ptnum, kk);
     Spa("volgrad", ptnum, volume_gradient);
 }
 
-void FilterLappingSources(int ptnum; vector pos; float sdf_min, sdf_max, threshold_low, threshold_high, surf_scale, surf_offset; int kill_unused, colorize_sources, displace_pos)
+int GetNormalFromPoly(vector pos; float search_distance; int max_pts; vector result){
+
+    int succ = 0;
+    
+    int nears[] = nearpoints(1,pos, search_distance * 2.0,max_pts);
+
+    int nlen = len(nears);
+
+    if (nlen <= 0) return succ;
+    int nid;
+    vector avg = {0,0,0};
+    vector cn;
+    int vertexidx[] = {};
+    int lvert = 0;
+    int cvert =0;
+    int ncount = 0;
+    for(int i=0;i<nlen;i++) {
+        nid = nears[i];
+
+        vertexidx = pointvertices(1,nid);
+        lvert = len(vertexidx);
+
+        if (lvert <= 0) continue;
+        
+        for (int j=0; j < lvert; j++ ) {
+            cvert = vertexidx[j];
+            cn = vertex(1,"N",cvert);
+            avg += cn;
+            ncount++;
+        }
+
+
+    }
+
+    if (ncount <= 0) return succ;
+    succ=1; // oke
+
+    avg /= ncount;
+    result = normalize(avg) * search_distance * 1.0;
+    return succ;
+}
+
+int GetOffsetToSurfByRay(vector pos; float sdf_max_distance; vector volume_gradient, result_normal, result_pos){
+
+    vector ipos = {0,0,0};
+    vector iuv = {0,0,0};
+    int iprim = 0;
+    iprim = intersect(2, pos, volume_gradient * sdf_max_distance * 1.7, ipos, iuv);
+    if (iprim < 0) return 0;
+
+    result_pos = ipos;
+    result_normal = primuv(2,"N", iprim, iuv);
+
+    return 1;
+}
+
+ 
+
+// surface_normal must be normalized
+// vavg is?
+void CalculateLappingSpace(int ptnum; vector surface_normal;  vector v_normal, v_direction, v_head)
+{
+    vector sn = surface_normal;
+    vector vAvg = normalize(point(geoself(), "vavg", ptnum));
+    vector k = cross(vAvg, sn);
+    vector kk = -1.* cross(k, sn);
+
+    // Normal: volume_gradient
+    v_normal = surface_normal;  
+    // Direction: kk
+    v_direction = k; // side
+    // Roll: k
+    v_head = kk;
+
+    //Spa("k", ptnum, k);
+    //Spa("kk", ptnum, sn);
+    
+}
+
+int GetXyzDist(vector pos; float sdf_max_distance; vector result_normal, result_pos; float result_distance){
+
+    
+    vector iuv = {0,0,0};
+    int iprim = 0;
+    float distance = xyzdist(2, pos, iprim, iuv, sdf_max_distance * 2.0);
+    if (iprim < 0) return 0;
+
+    //result_pos = minpos(2,pos);
+    result_pos = primuv(2,"P", iprim, iuv);
+    result_normal = normalize(primuv(2,"N", iprim, iuv));
+    result_distance = distance;
+    return 1;
+}
+
+ 
+void FilterLappingSources(int ptnum; vector pos; float sdf_min, sdf_max, surf_minm,surf_maxm, surf_offset, effect_scale; int kill_unused, colorize_sources, displace_pos, kill_outside)
 {
 
     float sdf_sample = 0;
     vector volume_gradient = {0, 0, 0};
-    if (!SampleLavaSdf(pos, sdf_min, sdf_max, threshold_low, threshold_high, sdf_sample, volume_gradient))
+    if (!SampleLavaSdf(pos, sdf_min, sdf_max, sdf_sample, volume_gradient))
     {
-
         if (kill_unused)
         {
             removepoint(geoself(), ptnum, 1);
         }
-
         return;
     }
 
     int inside = (sdf_sample <= 0);
-    float contrib = (inside ? 1. - (abs(sdf_sample) / abs(threshold_low)) : 1. - (sdf_sample / threshold_high));
+
+    
+    if (!inside){
+        if (kill_outside){
+            removepoint(geoself(), ptnum, 1);
+        } 
+        
+        // no solution for particles outside of sdf now..
+        return;
+    } 
+
+    Spa("lv_inside", ptnum, inside);
+    float maxsdf = max(abs(sdf_min) , sdf_max);
+    
+    vector surf_normal = {0,0,0};
+    vector surf_pos = {0,0,0};
+    float surf_dist = 0;
+
+    
+    if (!GetXyzDist( pos, maxsdf,  surf_normal, surf_pos, surf_dist) )   {
+        if (kill_unused)
+        {
+            removepoint(geoself(), ptnum, 1);
+        }
+        return;
+
+    }
+
+    Spa("lv_normal",ptnum, surf_normal);
+    Spa("lv_pos",ptnum, surf_pos);
+    Spa("lv_dist",ptnum, surf_dist);
+   
+
+    // level calculated from the sdf surface in out field
+    float lapping_level = fit(sdf_sample, sdf_min, 0., 0., 1.);
+    Spa("lv_level", ptnum, lapping_level);
 
     if (colorize_sources)
     {
-        Spa("Cd", ptnum, GetColorForLappingSources(inside, contrib));
+        Spa("Cd", ptnum, GetColorForLappingSources(inside, lapping_level));
     }
 
-    // level calculated from the sdf surface in out field
-    float lapping_level = fit(sdf_sample, threshold_low, threshold_high, 0., 1.);
-    Spa("lv_level", ptnum, lapping_level);
-
-    vector v_normal, v_direction;
+   
+    
+    vector v_normal, v_direction, v_pos, v_head;
     v_normal = {0, 0, 0};
     v_direction = {0, 0, 0};
+    v_head = {0,0,0};
 
-    CalculateLappingSpace(ptnum, volume_gradient, v_normal, v_direction);
+    CalculateLappingSpace(ptnum,  surf_normal,  v_normal, v_direction, v_head );
+    Spa("v_n", ptnum, v_normal);
+    Spa("v_d", ptnum, v_direction);
+    Spa("v_h", ptnum, v_head);
 
-    float s_sign = 1;
-    if (!inside)
-    {
-        s_sign = -1;
-    }
+    // float s_sign = 1;
+    // if (!inside)
+    // {
+    //     s_sign = -1;
+    // }
 
-    vector to_surf = abs(sdf_sample) * normalize(v_normal) * s_sign * surf_scale;
-    vector away_surf = normalize(v_normal) * surf_offset;
+    //vector to_surf = abs(sdf_sample) * normalize(v_normal) * s_sign * surf_scale;
+    //vector away_surf = normalize(v_normal) * surf_offset;
 
     // offset first to surface then above it, to prepare projection
     if (displace_pos)
     {
-        Spa("P", ptnum, pos + to_surf + away_surf);
+        //Spa("P", ptnum, pos + to_surf + away_surf);
+
+        surf_pos = lerp(pos,surf_pos, effect_scale  );
+        Spa("P", ptnum, surf_pos );
+        Spa("opos", ptnum, pos);
     }
 
-    // create and set orient
-    matrix3 m = maketransform(normalize(v_direction), normalize(v_normal));
-    vector4 q = quaternion(m);
-    Spa("orient", ptnum, q);
+
+    MakeOrient(ptnum, v_normal, v_direction);
+    
 }
+
+
+
+
 
 // just diag / debug
 void ColorizeLavaSdf(int ptnum; vector pos; float sdf_min, sdf_max, threshold_low, threshold_high)
@@ -914,36 +1312,45 @@ void ColorizeLavaSdf(int ptnum; vector pos; float sdf_min, sdf_max, threshold_lo
 
 //--------- projection
 
-void ProjectToSurface(int ptnum; vector pos, ray_dir; float ray_len, level_scale, level_offset; int debug_intersect)
+void ProjectToSurface(int ptnum; vector pos; vector norm; float level_scale, level_offset; int debug_intersect; float search_radius)
 {
 
+    vector opos = point(geoself(), "opos", ptnum);
+
+    vector rdir = opos - pos;
+    norm = length(rdir) * norm;
+    rdir = ( rdir + rdir + rdir + norm ) / 4.0;
+
     float lv_level = point(geoself(), "lv_level", ptnum);
-    vector iRay = normalize(ray_dir) * ray_len;
+    vector iRay = rdir;
     vector iP = {0, 0, 0};
-    float iU, iV;
-    iU = 0;
-    iV = 0;
-    int res = intersect(1, pos, iRay, iP, iU, iV);
+    vector iuv = {0, 0, 0};
+    int iprim = intersect(1, pos, iRay, iP, iuv);
 
     if (debug_intersect) {
 
-        if ( res == -1) {
+        if ( iprim < 0 ) {
             Spa("Cd",ptnum, {1,0,0});
         } else {
-            Spa("Cd",ptnum, {0.1,0.8,1});
-        }
-
-    } else {
-
-        if (res == -1)
-        {
-            iP = minpos(1, pos);
+            Spa("Cd",ptnum, {0.0,0.4,0.3});
         }
 
     }
 
-    vector diff = normalize(pos - iP) ;
-    diff = (diff * lv_level * level_scale) + (diff * level_offset);
+    vector snorm = {0,0,0};
+    if (iprim < 0)
+    {
+        iP = minpos(1, pos);
+        GetNormalFromPoly(iP, search_radius, 5, snorm);
 
-    Spa("P", ptnum, iP + diff);
+    } else {
+        snorm = primuv(1,"N",iprim, iuv);
+    }
+    snorm = normalize(snorm);
+    Spa("N", ptnum, snorm);    
+
+    
+    iP += (snorm * lv_level * level_scale) + (snorm * level_offset);
+
+    Spa("P", ptnum, iP  );
 }

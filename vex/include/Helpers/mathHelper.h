@@ -608,7 +608,7 @@ int RndValueFromArray(int arr[]; float seed) {
     int nofVals = len(arr);
     if(nofVals == 0) return 0;
     if(nofVals == 1) return arr[0];
-    float rndVal =random(seed);
+    float rndVal =rand(seed);
     int rndIndex =int(floor(nofVals * rndVal));
     return arr[rndIndex];
 } 
