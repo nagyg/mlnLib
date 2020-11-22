@@ -7,7 +7,5 @@ otls/backup
 # backup files
 *_bak*.hip
 
-# not needed
+# not needed for everybody
 **/otls/gridmarkets*
-
-**/otls/gamedev_exoside_quadremesher.hda
