@@ -636,3 +636,20 @@ vector RelativeAdd(vector source, velocity; float mult) {
     dV = fit(dV, -1.0, 0.0, 1.0, 0.0);
     return source * dV * mult;
 }
+
+
+vector4 SummonOrient(vector v_normal, v_direction){
+        
+    matrix3 m = maketransform( v_direction, v_normal );
+    vector4 q = quaternion(m);
+    return q;
+}
+
+
+float RelativeLuminance(float r,   g,   b){
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
+float RelLuma(vector rgb){
+    return RelativeLuminance(rgb.r,rgb.g,rgb.b);
+}

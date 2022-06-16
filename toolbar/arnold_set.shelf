@@ -6,7 +6,7 @@
  a single file. -->
 
   <shelfSet name="arnold_set" label="Arnold HSITE">
-    <memberToolshelf name="arnold"/>
     <memberToolshelf name="arnold_lights"/>
+    <memberToolshelf name="labs_toolset"/>
   </shelfSet>
 </shelfDocument>
