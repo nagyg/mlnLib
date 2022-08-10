@@ -1,0 +1,147 @@
+fullscreen   -1
+playbarshown 1
+playbar      -1
+shelf        -1
+menubar      -1
+statusbar    -1
+radial menu set main
+root {
+    split 0.483594 H {
+        split 0.415049 V {
+            tabs 0 1 {
+                pane panetab101 -a 0 -l 10 -H /obj/ -T OBJ -m sceneview
+            }
+            tabs 0 1 {
+                pane panetab51 -a 0 -l 0 -H /obj/ -T OBJ -m neteditor
+                pane panetab4 -a 0 -l 0 -H /obj/ -T OBJ -m datatree
+                pane panetab11 -a 0 -l 10 -H /obj/ -T OBJ -m pythonpanel
+                pane panetab1 -a 0 -l 0 -H /obj/ -T OBJ -m textport
+            }
+        }
+        split 0.416667 V {
+            tabs 0 1 {
+                pane panetab5 -a 0 -l 1 -H /obj/ -T OBJ -m parmeditor
+                pane panetab8 -a 0 -l 1 -H /obj/ -T OBJ -m details
+                pane panetab14 -a 0 -l 10 -H /obj/ -T OBJ -m rendergallery
+            }
+            tabs 0 1 {
+                pane panetab85 -a 0 -l 2 -H /obj/ -T OBJ -m parmeditor
+                pane panetab7 -a 0 -l 2 -H /obj/ -T OBJ -m details
+                pane panetab6 -a 0 -l 10 -H /obj/ -T OBJ -m pythonpanel
+            }
+        }
+    }
+
+    panel panel1 -w 2560 9 2560 1408 -X {
+        split 0.619922 H {
+            split 0.434155 V {
+                tabs 0 1 {
+                    pane panetab47 -a 0 -l 1 -H /obj/ -T OBJ -m neteditor
+                    pane panetab13 -a 0 -l 10 -H /obj/ -T OBJ -m scenegraphtree
+                }
+                tabs 0 1 {
+                    pane panetab88 -a 0 -l 2 -H /obj/ -T OBJ -m neteditor
+                    pane panetab2 -a 0 -l 0 -H /obj/ -T OBJ -m chaneditor
+                    pane panetab3 -a 0 -l 10 -H /ch/ -T CHOPNET -m channelview
+                }
+            }
+            split 0.434721 V {
+                tabs 0 1 {
+                    pane panetab94 -a 0 -l 3 -H /out/ -T ROP -m parmeditor
+                    pane panetab9 -a 0 -l 10 -H /obj/ -T OBJ -m pythonpanel
+                }
+                tabs 0 1 {
+                    pane panetab24 -a 0 -l 3 -H /out/ -T ROP -m neteditor
+                    pane panetab15 -a 0 -l 10 -H /obj/ -T OBJ -m pythonpanel
+                }
+            }
+        }
+    }
+}
+shelfdock -o 1 -l icon_and_text -G "0.50 0.50" add shelf_set_1 shelf_set_2
+viewerstow -x open -b stow -l open -m hide -c hide -d open ${DESKNAME}.panetab101.world
+vieweroption -a 0 ${DESKNAME}.panetab101.world
+viewlayout -s 4 ${DESKNAME}.panetab101.world
+viewtype -t perspective ${DESKNAME}.panetab101.world.`vpname("${DESKNAME}.panetab101.world",4)`
+viewtype -t ortho_front ${DESKNAME}.panetab101.world.`vpname("${DESKNAME}.panetab101.world",3)`
+viewtype -t perspective ${DESKNAME}.panetab101.world.`vpname("${DESKNAME}.panetab101.world",1)`
+viewtype -t perspective ${DESKNAME}.panetab101.world.`vpname("${DESKNAME}.panetab101.world",2)`
+networkeditor -p '{\n	"showspareinputdep":"1",\n	"showchilddep":"1",\n	"showdep":"0",\n	"showtaskgraphperf":"0",\n	"taskgraphperfstatname":"Cook Time",\n	"perfstatname":"Time",\n	"showperfstats":"1",\n	"grouplistsplit":"0.75",\n	"showtree":"0",\n	"showtypesidebar":"0",\n	"taskgraphsortcriteria":"Automatic",\n	"showparmdialogmax":"1",\n	"treesplit":"0.25",\n	"palettesize":"150 150",\n	"typesidebarsplit":"0.25",\n	"taskgraphcollapsemode":"Off",\n	"workitemcolorattribute":"",\n	"gridmode":"0",\n	"overviewbounds":"0.000000 0.000000 371.400000 130.500000",\n	"overviewmode":"2",\n	"showgrouplist":"0",\n	"palettemode":"0",\n	"useworkitemcolorattribute":"0",\n	"showtasksmenu":"1",\n	"backgroundimageediting":"0",\n	"backgroundimagebrightness":"1.0",\n	"gridystep":"1.0",\n	"palettecolors":"",\n	"showmenu":"1",\n	"gridxstep":"2.0",\n	"showparmdialog":"0"\n}\n' panetab51
+netcolumns -c display,xray,select,origin,capture,bone -n OBJ panetab51
+netcolumns -c display,render,template,selectabletemplate,highlight,unload,bypass,lock -n SOP panetab51
+netcolumns -c delscript,comment -n CHOPNET panetab51
+netcolumns -c display,export,audio,bypass,lock -n CHOP panetab51
+netcolumns -c startrender,bypass,lock -n ROP panetab51
+netcolumns -c delscript,comment -n SHOP panetab51
+netcolumns -c display,render,template,bypass -n COP2 panetab51
+netcolumns -c delscript,comment -n IMG panetab51
+netcolumns -c delscript,comment,input -n VOP panetab51
+netcolumns -c delscript,comment -n VOPNET panetab51
+netcolumns -c delscript,comment -n DOP panetab51
+netcolumns -c delscript,comment -n TOP panetab51
+netcolumns -c delscript,comment -n TOPNET panetab51
+netcolumns -c display,bypass,delscript,comment,input -n LOP panetab51
+netcolumns -c delscript,comment -n MGR panetab51
+netcolumns -c delscript,comment -n DIR panetab51
+datatree panetab4
+pythonpanel -s on -t off -n sidefx::material_linker panetab11
+parmeditor -T 0.25 -w 0 panetab5
+ panetab14
+parmeditor -T 0.25 -w 0 panetab85
+networkeditor -p '{\n	"showspareinputdep":"1",\n	"showchilddep":"1",\n	"showdep":"0",\n	"showtaskgraphperf":"0",\n	"taskgraphperfstatname":"Cook Time",\n	"perfstatname":"Time",\n	"showperfstats":"1",\n	"grouplistsplit":"0.75",\n	"showtree":"0",\n	"showtypesidebar":"0",\n	"taskgraphsortcriteria":"Automatic",\n	"showparmdialogmax":"1",\n	"treesplit":"0.25",\n	"palettesize":"150 150",\n	"typesidebarsplit":"0.25",\n	"taskgraphcollapsemode":"Off",\n	"workitemcolorattribute":"",\n	"gridmode":"0",\n	"overviewbounds":"0.000000 0.000000 476.100000 215.100000",\n	"overviewmode":"2",\n	"showgrouplist":"0",\n	"palettemode":"0",\n	"useworkitemcolorattribute":"0",\n	"showtasksmenu":"1",\n	"backgroundimageediting":"0",\n	"backgroundimagebrightness":"1.0",\n	"gridystep":"1.0",\n	"palettecolors":"",\n	"showmenu":"1",\n	"gridxstep":"2.0",\n	"showparmdialog":"0"\n}\n' panetab47
+netcolumns -c display,xray,select,origin,capture,bone -n OBJ panetab47
+netcolumns -c display,render,template,selectabletemplate,highlight,unload,bypass,lock -n SOP panetab47
+netcolumns -c delscript,comment -n CHOPNET panetab47
+netcolumns -c display,export,audio,bypass,lock -n CHOP panetab47
+netcolumns -c startrender,bypass,lock -n ROP panetab47
+netcolumns -c delscript,comment -n SHOP panetab47
+netcolumns -c display,render,template,bypass -n COP2 panetab47
+netcolumns -c delscript,comment -n IMG panetab47
+netcolumns -c delscript,comment,input -n VOP panetab47
+netcolumns -c delscript,comment -n VOPNET panetab47
+netcolumns -c delscript,comment -n DOP panetab47
+netcolumns -c delscript,comment -n TOP panetab47
+netcolumns -c delscript,comment -n TOPNET panetab47
+netcolumns -c display,bypass,delscript,comment,input -n LOP panetab47
+netcolumns -c delscript,comment -n MGR panetab47
+netcolumns -c delscript,comment -n DIR panetab47
+scenegraphtree -S 0.25 -m 0 -p "/collections /lights" -c  -i  -o  -x 1 -s 1 -M 0 -C primtype,descendants,kind,populated,loaded,activation,visibility,solo,selectability  panetab13
+networkeditor -p '{\n	"showspareinputdep":"1",\n	"showchilddep":"1",\n	"showdep":"0",\n	"showtaskgraphperf":"0",\n	"taskgraphperfstatname":"Cook Time",\n	"perfstatname":"Time",\n	"showperfstats":"1",\n	"grouplistsplit":"0.75",\n	"showtree":"0",\n	"showtypesidebar":"0",\n	"taskgraphsortcriteria":"Automatic",\n	"showparmdialogmax":"1",\n	"treesplit":"0.25",\n	"palettesize":"150 150",\n	"typesidebarsplit":"0.25",\n	"taskgraphcollapsemode":"Off",\n	"workitemcolorattribute":"",\n	"gridmode":"0",\n	"overviewbounds":"0.000000 0.000000 476.100000 161.100000",\n	"overviewmode":"2",\n	"showgrouplist":"0",\n	"palettemode":"0",\n	"useworkitemcolorattribute":"0",\n	"showtasksmenu":"1",\n	"backgroundimageediting":"0",\n	"backgroundimagebrightness":"1.0",\n	"gridystep":"1.0",\n	"palettecolors":"",\n	"showmenu":"1",\n	"gridxstep":"2.0",\n	"showparmdialog":"0"\n}\n' panetab88
+netcolumns -c display,xray,select,origin,capture,bone -n OBJ panetab88
+netcolumns -c display,render,template,selectabletemplate,highlight,unload,bypass,lock -n SOP panetab88
+netcolumns -c delscript,comment -n CHOPNET panetab88
+netcolumns -c display,export,audio,bypass,lock -n CHOP panetab88
+netcolumns -c startrender,bypass,lock -n ROP panetab88
+netcolumns -c delscript,comment -n SHOP panetab88
+netcolumns -c display,render,template,bypass -n COP2 panetab88
+netcolumns -c delscript,comment -n IMG panetab88
+netcolumns -c delscript,comment,input -n VOP panetab88
+netcolumns -c delscript,comment -n VOPNET panetab88
+netcolumns -c delscript,comment -n DOP panetab88
+netcolumns -c delscript,comment -n TOP panetab88
+netcolumns -c delscript,comment -n TOPNET panetab88
+netcolumns -c display,bypass,delscript,comment,input -n LOP panetab88
+netcolumns -c delscript,comment -n MGR panetab88
+netcolumns -c delscript,comment -n DIR panetab88
+chopview -a 0 -c "" -k 1 -m 1 -b 1 -e 1 -f 0 -g 0 -H 1 -i 0 -j 1 -l 0 -n 1 -V 0 -y 0 -B 0 -s 0 -S 0.034375 -u 0 -v 0 -h -10 310 -r -1.5 1.5 panetab3
+parmeditor -T 0.25 -w 0 panetab94
+pythonpanel -s on -t off -n SceneGraphDetails panetab9
+networkeditor -p '{\n	"showspareinputdep":"1",\n	"showchilddep":"1",\n	"showdep":"0",\n	"showtaskgraphperf":"0",\n	"taskgraphperfstatname":"Cook Time",\n	"perfstatname":"Time",\n	"showperfstats":"1",\n	"grouplistsplit":"0.75",\n	"showtree":"0",\n	"showtypesidebar":"0",\n	"taskgraphsortcriteria":"Automatic",\n	"showparmdialogmax":"1",\n	"treesplit":"0.25",\n	"palettesize":"150 150",\n	"typesidebarsplit":"0.25",\n	"taskgraphcollapsemode":"Off",\n	"workitemcolorattribute":"",\n	"gridmode":"0",\n	"overviewbounds":"0.000000 0.000000 289.800000 161.400000",\n	"overviewmode":"2",\n	"showgrouplist":"0",\n	"palettemode":"0",\n	"useworkitemcolorattribute":"0",\n	"showtasksmenu":"1",\n	"backgroundimageediting":"0",\n	"backgroundimagebrightness":"1.0",\n	"gridystep":"1.0",\n	"palettecolors":"",\n	"showmenu":"1",\n	"gridxstep":"2.0",\n	"showparmdialog":"0"\n}\n' panetab24
+netcolumns -c display,xray,select,origin,capture,bone -n OBJ panetab24
+netcolumns -c display,render,template,selectabletemplate,highlight,unload,bypass,lock -n SOP panetab24
+netcolumns -c delscript,comment -n CHOPNET panetab24
+netcolumns -c display,export,audio,bypass,lock -n CHOP panetab24
+netcolumns -c startrender,bypass,lock -n ROP panetab24
+netcolumns -c delscript,comment -n SHOP panetab24
+netcolumns -c display,render,template,bypass -n COP2 panetab24
+netcolumns -c delscript,comment -n IMG panetab24
+netcolumns -c delscript,comment,input -n VOP panetab24
+netcolumns -c delscript,comment -n VOPNET panetab24
+netcolumns -c delscript,comment -n DOP panetab24
+netcolumns -c delscript,comment -n TOP panetab24
+netcolumns -c delscript,comment -n TOPNET panetab24
+netcolumns -c display,bypass,delscript,comment,input -n LOP panetab24
+netcolumns -c delscript,comment -n MGR panetab24
+netcolumns -c delscript,comment -n DIR panetab24
+pythonpanel -s on -t off -n SceneGraphLayersPanel panetab15
+pythonpanel -s on -t off -n sidefx::material_linker panetab6
